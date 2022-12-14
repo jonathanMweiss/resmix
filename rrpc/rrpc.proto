@@ -1,0 +1,157 @@
+syntax = "proto3";
+package rrpc;
+
+
+option go_package = "github.com/jonathanMweiss/resmix/rrpc";
+
+import "google/protobuf/timestamp.proto";
+import "google/rpc/status.proto";
+
+// todo need to refactor the rrpc_proto.
+
+service Relay {
+  // Relay is the primary function of a relay that's used to transfer
+  // arbitrary RPC call in the layer above.
+  rpc RelayStream(stream RelayStreamRequests) returns (stream RelayStreamResponse) {}
+
+  rpc Attest(stream Attestation) returns (AttestResponse) {}
+
+  // on a fastcall the client will send a proof of participation by sending a hash of it's correspondence with a server
+  // and the signature of the server on that hash. If the proof is valid the relay will store the last time this client contacted
+  // a specific server.
+  rpc SendProof(stream Proofs) returns (SendProofResponse) {}
+}
+
+// RRPC is the interface for the RPC servers.
+service RRPC {
+  // Call is the main function of RRPC. After receiving enough
+  // parcels, the function will reconstruct the final message, and
+  // pass it up to the higher level RPC.
+  rpc CallStream(stream CallStreamRequest) returns (stream CallStreamResponse) {}
+
+  // This is the common call between two honest machines, any case of failure will escalate to the regular call.
+  rpc DirectCall(DirectCallRequest) returns (DirectCallResponse){}
+}
+
+// tells who exchanged whim whom, along with a signature.
+message ExchangeNote{
+  bytes senderID = 2;
+  bytes ReceiverID = 3;
+  // We need both participants in the exchange to sign this,
+  // otherwise one of them might forge the info
+  MerkleCertificate senderMerkleProof = 4;
+  MerkleCertificate ReceiverMerkleProof = 5;
+
+  string calluuid = 6;
+}
+
+message RelayStreamRequests{
+  repeated RelayStreamRequest requests = 1;
+}
+
+message RelayStreamRequest{
+  RelayRequest request = 1;
+}
+
+message RelayStreamResponse{
+  CallStreamResponse Response = 1;
+  google.rpc.Status RelayStreamError = 2;
+
+  string uuid = 3;
+}
+
+message  AttestResponse{}
+
+message Attestation{
+  string attesterName = 1;
+  bytes signature = 5;
+  bytes accused = 6;
+}
+
+message Proofs{
+  repeated Proof proofs = 1;
+}
+message Proof{
+  string serverHostname = 2;
+  ExchangeNote WorkExchangeNote = 3;
+}
+
+message SendProofResponse{
+  google.rpc.Status Status = 1;
+}
+
+message Parcel {
+  // message_length is the length of the original message (before ECC
+  // encoding).
+  bytes message_length = 2;
+  // each relay should receive a payload with it's shares from the shards [][][]byte:
+  // relay i will receive:
+  // [0][i], [1][i],....[n][i]. where n is the amount of shard chuncks there are from the ecc.
+  repeated bytes payload = 3;
+
+  string method = 4; // states which method to call.
+
+  // determines the order of the parcels and which relays it should be sent through.
+  int32 RelayIndex = 5;
+
+  ExchangeNote note = 6;
+}
+
+// used as a signature for batch sending.
+message MerkleCertificate{
+  bytes root = 1;
+  repeated bytes path = 2;
+  uint64 index = 3;
+  // the signature is over the root only.
+  bytes signature = 4;
+}
+
+message RelayRequest {
+  Parcel parcel = 1;
+}
+
+message CallStreamRequest{
+  Parcel parcel = 1;
+}
+
+message rrpcResponse{
+  repeated bytes Payload = 1;
+  bytes MessageLength = 2;
+  int32 RelayIndex = 3;
+}
+
+message CallStreamResponse{
+  // one of
+  rrpcResponse response = 1;
+  google.rpc.Status RpcError = 2;
+
+  // the public key is not a must, but it is easier to work with.
+  bytes publicKey = 4;
+
+  ExchangeNote note = 6;
+}
+
+// used to signa fast response
+message fastPassClientSignature{
+  string callid = 1;
+  string clientHostName = 3;
+  bytes signature = 4;
+
+}
+
+message DirectCallRequest{
+  // method is the higher level rpc method name.
+  string method = 2;
+  // payload is the piece of ECC encoded message.
+  bytes payload = 3;
+
+  ExchangeNote note = 5;
+}
+
+message DirectCallResponse {
+  bytes payload = 2;
+
+  //signed amount of work
+  ExchangeNote note = 5;
+}
+
