@@ -15,6 +15,8 @@ import (
 type PrivateKey ed25519.PrivateKey
 type PublicKey ed25519.PublicKey
 
+var ErrBadSignature = fmt.Errorf("bad signature")
+
 func GenerateKeys() (PrivateKey, PublicKey, error) {
 	p, s, e := ed25519.GenerateKey(rand.Reader)
 	if e != nil {
@@ -82,8 +84,6 @@ func (p PublicKey) Marshal() []byte {
 func (s PrivateKey) Marshal() []byte {
 	return s
 }
-
-var badKeySize = errors.New("bad key size")
 
 func DecodePKey(encodedPubKey []byte) (PublicKey, error) {
 	if len(encodedPubKey) != ed25519.PublicKeySize {

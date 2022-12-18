@@ -23,14 +23,14 @@ service Relay {
 }
 
 // RRPC is the interface for the RPC servers.
-service RRPC {
+service Server {
   // Call is the main function of RRPC. After receiving enough
   // parcels, the function will reconstruct the final message, and
   // pass it up to the higher level RPC.
   rpc CallStream(stream CallStreamRequest) returns (stream CallStreamResponse) {}
 
   // This is the common call between two honest machines, any case of failure will escalate to the regular call.
-  rpc DirectCall(DirectCallRequest) returns (DirectCallResponse){}
+  rpc DirectCall(stream DirectCallRequest) returns (stream DirectCallResponse){}
 }
 
 // tells who exchanged whim whom, along with a signature.
@@ -149,7 +149,10 @@ message DirectCallRequest{
 }
 
 message DirectCallResponse {
-  bytes payload = 2;
+  oneof Result{
+    bytes payload = 1;
+    google.rpc.Status RpcError = 2;
+  }
 
   //signed amount of work
   ExchangeNote note = 5;
