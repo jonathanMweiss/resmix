@@ -207,3 +207,20 @@ func (c *client) DirectCall(req *Request) error {
 
 	return <-reqst.Err
 }
+
+func (c *client) AsyncDirectCall(req *Request) (chan<- error, error) {
+	if err := req.pack(); err != nil {
+		return nil, err
+	}
+
+	reqst := &requestWithResponse[*Request]{
+		In:        req,
+		Err:       make(chan error),
+		StartTime: time.Now(),
+	}
+
+	c.waitingTasks.Store(req.Uuid, reqst)
+	c.directCallSendChannel <- reqst
+
+	return reqst.Err, nil
+}
