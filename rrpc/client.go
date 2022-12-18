@@ -2,12 +2,15 @@ package rrpc
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/ecc"
+	"github.com/jonathanMweiss/resmix/internal/freelist"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,6 +40,7 @@ type client struct {
 	context.Context
 	context.CancelFunc
 }
+
 type requestWithResponse[T interface{}] struct {
 	In        T
 	Err       chan error
@@ -223,4 +227,81 @@ func (c *client) AsyncDirectCall(req *Request) (chan<- error, error) {
 	c.directCallSendChannel <- reqst
 
 	return reqst.Err, nil
+}
+
+func (c *client) RobustCall(req *Request) error {
+	if err := req.pack(); err != nil {
+		return err
+	}
+
+	robustCallRequests, err := c.requestIntoRobust(req)
+	if err != nil {
+		return err
+	}
+
+	// sign them
+	signables := make([]MerkleCertifiable, 0, len(robustCallRequests))
+	for i := range robustCallRequests {
+		signables = append(signables, robustCallRequests[i])
+	}
+
+	if err := merkleSign(signables, c.secretKey); err != nil {
+		return err
+	}
+
+	//waitOns := make([]requestWithResponse[*RelayStreamResponse], len(robustCallRequests))
+	//for i, request := range robustCallRequests {
+	// TODO, no, all the relay conns should aanswer on the same channel that holds enough capacity for all of them.
+	// 	otherwise i'll get stuck waiting on one of them!
+	// 	so lets send all the requests at once, and return a channel for responses.
+	// BAD : waitOns[i] = c.network.sendRelayRequest(request, i)
+
+	//}
+	return nil
+}
+
+func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
+	bf, dn := freelist.Get()
+	defer dn()
+
+	if err := rq.packWithBuffer(bf); err != nil {
+		return nil, err
+	}
+
+	margs := rq.marshaledArgs
+
+	if len(margs) > math.MaxUint32 {
+		return nil, fmt.Errorf("message size: %v is too big", len(margs))
+	}
+
+	msgLength := make([]byte, 4)
+	binary.LittleEndian.PutUint32(msgLength, uint32(len(margs)))
+
+	chunks, err := c.encoderDecoder.AuthEncode(margs)
+	if err != nil {
+		return nil, fmt.Errorf("failure in encoding, client side: %v", err)
+	}
+
+	relayRequests := make([]*RelayRequest, len(c.network.Servers()))
+	for i := range c.network.Servers() {
+		relayRequests[i] = &RelayRequest{
+			Parcel: &Parcel{
+				Method:     rq.Method,
+				RelayIndex: int32(i),
+
+				Note: &ExchangeNote{
+					SenderID:            c.identifier,
+					ReceiverID:          c.serverID,
+					SenderMerkleProof:   nil, // will be signed soon
+					ReceiverMerkleProof: nil,
+					Calluuid:            rq.Uuid,
+				},
+				MessageLength: msgLength,
+			},
+		}
+		// O(1) work.
+		(*eccClientParcel)(relayRequests[i].Parcel).InsertECCPayload(chunks, i)
+	}
+
+	return relayRequests, nil
 }

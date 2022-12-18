@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 
@@ -53,6 +54,7 @@ type Network interface {
 
 	CloseConnections() error
 	PublishProof(*Proof)
+	sendRelayRequest(*RelayRequest, int) requestWithResponse[*RelayStreamResponse]
 }
 
 type ServerData struct {
@@ -205,6 +207,9 @@ func NewNetData(config *NetworkConfig) NetData {
 		}
 		nt.addServer(scnf)
 	}
+
+	// ensuring everyone holds the same index per server
+	sort.Strings(nt.serverAddresses)
 
 	return nt
 }

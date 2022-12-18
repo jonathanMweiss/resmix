@@ -77,43 +77,47 @@ func prepareForHashing(m interface{}, w crypto.BWriter) (crypto.HashID, []byte) 
 // slow requests
 // ====
 
-//func (p *Parcel) SetMerkleCert(root crypto.Digest, proof []crypto.Digest, leafIndex int, signature []byte) {
-//	p.Merkle = &pb.MerkleCertificate{
-//		Root:      root[:],
-//		Path:      proofIntoBytes(proof),
-//		Index:     uint64(leafIndex),
-//		Signature: signature,
-//	}
-//}
+func (p *Parcel) SetMerkleCert(root crypto.Digest, proof []crypto.Digest, leafIndex int, signature []byte) {
+	p.Signature = &MerkleCertificate{
+		Root:      root[:],
+		Path:      proofIntoBytes(proof),
+		Index:     uint64(leafIndex),
+		Signature: signature,
+	}
+}
 
-//func (p *parcel) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
-//	return prepareForHashing(p, w)
-//}
+func (p *Parcel) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
+	return prepareForHashing(p, w)
+}
 
-//func (p *parcel) popCert() *pb.MerkleCertificate {
-//	cert := p.Merkle
-//	p.Merkle = nil
-//	return cert
-//}
-//
-//func (p *parcel) pushCert(cert *pb.MerkleCertificate) {
-//	p.Merkle = cert
-//}
-//
-//type relayReq pb.RelayRequest
-//
-//func (r *relayReq) SetMerkleCert(root crypto.Digest, proof []crypto.Digest, leafIndex int, signature []byte) {
-//	(*parcel)(r.Parcel).SetMerkleCert(root, proof, leafIndex, signature)
-//}
-//
-//func (r *relayReq) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
-//	start := w.Len()
-//	if err := codec.MarshalIntoWriter(r.Parcel, w); err != nil {
-//		// TODO maybe panic
-//		return "", nil
-//	}
-//	return crypto.Message, w.Bytes()[start:]
-//}
+func (p *Parcel) popCert() *MerkleCertificate {
+	cert := p.Signature
+	p.Signature = nil
+	return cert
+}
+
+func (p *Parcel) pushCert(cert *MerkleCertificate) {
+	p.Signature = cert
+}
+
+func (r *RelayRequest) SetMerkleCert(root crypto.Digest, proof []crypto.Digest, leafIndex int, signature []byte) {
+	r.Parcel.SetMerkleCert(root, proof, leafIndex, signature)
+}
+func (r *RelayRequest) popCert() *MerkleCertificate {
+	return r.Parcel.popCert()
+}
+
+func (r *RelayRequest) pushCert(certificate *MerkleCertificate) {
+	r.Parcel.pushCert(certificate)
+}
+
+func (r *RelayRequest) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
+	start := w.Len()
+	if err := codec.MarshalIntoWriter(r.Parcel, w); err != nil {
+		panic("cannot hash relay request!")
+	}
+	return crypto.Message, w.Bytes()[start:]
+}
 
 //type serverResp pb.CallStreamResponse
 

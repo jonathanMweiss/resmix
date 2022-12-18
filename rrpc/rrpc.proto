@@ -95,6 +95,9 @@ message Parcel {
   int32 RelayIndex = 5;
 
   ExchangeNote note = 6;
+
+  // using a signature to ensure no relay corrupt the parcel.
+  MerkleCertificate signature = 7;
 }
 
 // used as a signature for batch sending.
