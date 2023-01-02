@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
+	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -49,11 +50,10 @@ type NetData interface {
 type Network interface {
 	NetData
 
-	GetRelayConn(hostname string) *RelayConn
-
 	CloseConnections() error
 	PublishProof(*Proof)
-	sendRelayRequest([]*RelayRequest) (chan *RelayStreamResponse, error)
+	SendRelayRequest(context.Context, []*RelayRequest) (chan *RelayStreamResponse, error)
+	CancelRequest(uuid string)
 }
 
 type ServerData struct {
@@ -86,21 +86,32 @@ type network struct {
 	conns map[string]*RelayConn
 }
 
-func (n *network) sendRelayRequest(requests []*RelayRequest) (chan *RelayStreamResponse, error) {
+func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) (chan *RelayStreamResponse, error) {
 	if len(requests) != len(n.conns) {
 		return nil, fmt.Errorf("Bad request, number of requests differs from number of relays")
 	}
+	responseChan := make(chan *RelayStreamResponse, len(requests))
 	srvrs := n.Servers()
-	for _, request := range requests {
-		v, ok := n.conns[srvrs[request.Parcel.RelayIndex]]
+	for i := range requests {
+		v, ok := n.conns[srvrs[requests[i].Parcel.RelayIndex]]
 		if !ok {
 			panic("relay index not found")
 		}
 		v.prepareForRequest(requests)
-		v.sendRequest()
+		v.sendRequest(relayConnRequest{
+			RelayRequest: requests[i],
+			response:     responseChan,
+		})
 	}
 
-	return nil, nil
+	// TODO: now wait on the request until its ready/ until the context is done.
+	return responseChan, nil
+}
+
+func (n *network) CancelRequest(uuid string) {
+	for _, conn := range n.conns {
+		conn.cancelRequest(uuid)
+	}
 }
 
 func (n *network) PublishProof(p *Proof) {

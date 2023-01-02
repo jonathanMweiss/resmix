@@ -276,7 +276,7 @@ func (c *client) RobustCall(req *Request) error {
 	// TODO, no, all the relay conns should aanswer on the same channel that holds enough capacity for all of them.
 	// 	otherwise i'll get stuck waiting on one of them!
 	// 	so lets send all the requests at once, and return a channel for responses.
-	// BAD : waitOns[i] = c.network.sendRelayRequest(request, i)
+	// BAD : waitOns[i] = c.network.RobustRequest(request, i)
 
 	//}
 	return nil

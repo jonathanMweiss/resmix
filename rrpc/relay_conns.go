@@ -18,6 +18,10 @@ type RelayConn struct {
 	sync.WaitGroup
 	sync.Map
 }
+type relayConnRequest struct {
+	*RelayRequest
+	response chan *RelayStreamResponse
+}
 
 func NewRelayConn(address string) (*RelayConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -90,7 +94,7 @@ func (r *RelayConn) prepareForRequest(request []*RelayRequest) {
 
 }
 
-func (r *RelayConn) sendRequest() {
+func (r *RelayConn) sendRequest(relayConnRequest) {
 	// TODO:
 	panic("not implemented")
 }
