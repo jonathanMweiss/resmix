@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
-
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -54,7 +53,7 @@ type Network interface {
 
 	CloseConnections() error
 	PublishProof(*Proof)
-	sendRelayRequest(*RelayRequest, int) requestWithResponse[*RelayStreamResponse]
+	sendRelayRequest([]*RelayRequest) (chan *RelayStreamResponse, error)
 }
 
 type ServerData struct {
@@ -85,6 +84,23 @@ type network struct {
 	NetData
 	skey  crypto.PrivateKey
 	conns map[string]*RelayConn
+}
+
+func (n *network) sendRelayRequest(requests []*RelayRequest) (chan *RelayStreamResponse, error) {
+	if len(requests) != len(n.conns) {
+		return nil, fmt.Errorf("Bad request, number of requests differs from number of relays")
+	}
+	srvrs := n.Servers()
+	for _, request := range requests {
+		v, ok := n.conns[srvrs[request.Parcel.RelayIndex]]
+		if !ok {
+			panic("relay index not found")
+		}
+		v.prepareForRequest(requests)
+		v.sendRequest()
+	}
+
+	return nil, nil
 }
 
 func (n *network) PublishProof(p *Proof) {

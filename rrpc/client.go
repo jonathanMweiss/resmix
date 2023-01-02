@@ -35,13 +35,13 @@ type client struct {
 	identifier []byte
 	serverID   []byte
 
-	directCallSendChannel chan *requestWithResponse[*Request]
+	directCallSendChannel chan *rqstWithErr[*Request]
 
 	context.Context
 	context.CancelFunc
 }
 
-type requestWithResponse[T interface{}] struct {
+type rqstWithErr[T interface{}] struct {
 	In        T
 	Err       chan error
 	StartTime time.Time
@@ -114,7 +114,29 @@ func (c *client) setServerStream() error {
 		}
 	}()
 
-	go garbageCollectSyncMap[*requestWithResponse[*Request]](c.Context, &c.wg, &c.waitingTasks)
+	go func() {
+		defer c.wg.Done()
+		dropFromMap := time.NewTicker(time.Second * 5)
+		for {
+			select {
+			case <-dropFromMap.C:
+				currentTime := time.Now()
+				c.waitingTasks.Range(func(key, value interface{}) bool {
+					rqst, ok := value.(*rqstWithErr[*Request]) // .Err <- fmt.Errorf("timeout"))
+					if !ok {
+						panic("client::VerifyAndDispatch: could not cast task!")
+					}
+					if currentTime.Sub(rqst.StartTime) > time.Second*5 {
+						rqst.Err <- status.Error(codes.Canceled, "response timed out")
+						c.waitingTasks.Delete(key)
+					}
+					return true
+				})
+			case <-c.Context.Done():
+				return
+			}
+		}
+	}()
 
 	return nil
 }
@@ -127,7 +149,7 @@ func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 		return nil
 	}
 
-	reqst, ok := v.(*requestWithResponse[*Request])
+	reqst, ok := v.(*rqstWithErr[*Request])
 	if !ok {
 		panic("client::VerifyAndDispatch: could not cast task!")
 	}
@@ -184,7 +206,7 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 		wg:                    sync.WaitGroup{},
 		identifier:            key.Public(),
 		serverID:              serverPk,
-		directCallSendChannel: make(chan *requestWithResponse[*Request], 10),
+		directCallSendChannel: make(chan *rqstWithErr[*Request], 10),
 		Context:               ctx,
 		CancelFunc:            cancel,
 	}
@@ -200,7 +222,7 @@ func (c *client) DirectCall(req *Request) error {
 		return err
 	}
 
-	reqst := &requestWithResponse[*Request]{
+	reqst := &rqstWithErr[*Request]{
 		In:        req,
 		Err:       make(chan error),
 		StartTime: time.Now(),
@@ -217,7 +239,7 @@ func (c *client) AsyncDirectCall(req *Request) (chan<- error, error) {
 		return nil, err
 	}
 
-	reqst := &requestWithResponse[*Request]{
+	reqst := &rqstWithErr[*Request]{
 		In:        req,
 		Err:       make(chan error),
 		StartTime: time.Now(),
@@ -249,7 +271,7 @@ func (c *client) RobustCall(req *Request) error {
 		return err
 	}
 
-	//waitOns := make([]requestWithResponse[*RelayStreamResponse], len(robustCallRequests))
+	//waitOns := make([]rqstWithErr[*RelayStreamResponse], len(robustCallRequests))
 	//for i, request := range robustCallRequests {
 	// TODO, no, all the relay conns should aanswer on the same channel that holds enough capacity for all of them.
 	// 	otherwise i'll get stuck waiting on one of them!

@@ -80,3 +80,17 @@ func (r *RelayConn) Close() error {
 	r.WaitGroup.Wait()
 	return r.ClientConn.Close()
 }
+
+func (r *RelayConn) cancelRequest(uuid string) {
+	r.Map.Delete(uuid)
+}
+
+// prepares this connection to receive a response for a request with the given uuid.
+func (r *RelayConn) prepareForRequest(request []*RelayRequest) {
+
+}
+
+func (r *RelayConn) sendRequest() {
+	// TODO:
+	panic("not implemented")
+}
