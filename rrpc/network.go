@@ -52,7 +52,7 @@ type Network interface {
 
 	CloseConnections() error
 	PublishProof(*Proof)
-	SendRelayRequest(context.Context, []*RelayRequest) (chan *RelayStreamResponse, error)
+	RobustRequest(context context.Context, requests []*RelayRequest) error
 	CancelRequest(uuid string)
 }
 
@@ -86,9 +86,9 @@ type network struct {
 	conns map[string]*RelayConn
 }
 
-func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) (chan *RelayStreamResponse, error) {
+func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) error {
 	if len(requests) != len(n.conns) {
-		return nil, fmt.Errorf("Bad request, number of requests differs from number of relays")
+		return fmt.Errorf("Bad request, number of requests differs from number of relays")
 	}
 	responseChan := make(chan *RelayStreamResponse, len(requests))
 	srvrs := n.Servers()
@@ -105,7 +105,7 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 	}
 
 	// TODO: now wait on the request until its ready/ until the context is done.
-	return responseChan, nil
+	return nil
 }
 
 func (n *network) CancelRequest(uuid string) {
