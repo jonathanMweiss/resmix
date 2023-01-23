@@ -29,7 +29,7 @@ type server_signables struct {
 
 type Server struct {
 	Services
-	NetData
+	Network
 	verifier     *MerkleCertVerifier
 	signingQueue chan server_signables
 	skey         crypto.PrivateKey
@@ -41,23 +41,23 @@ type Server struct {
 	gsrvr *grpc.Server
 }
 
-func (s Server) Stop() {
+func (s *Server) Stop() {
 	s.gsrvr.Stop()
 	s.Cancel()
 	s.WaitGroup.Wait()
 }
 
-func (s Server) Serve(lis net.Listener) error {
+func (s *Server) Serve(lis net.Listener) error {
 	return s.gsrvr.Serve(lis)
 }
 
-func NewServerService(skey crypto.PrivateKey, s Services, network NetData) RrpcServer {
+func NewServerService(skey crypto.PrivateKey, s Services, network Network) RrpcServer {
 	cntx, cancelf := context.WithCancel(context.Background())
 	gsrvr := grpc.NewServer()
 
 	srvr := &Server{
 		Services:     s,
-		NetData:      network,
+		Network:      network,
 		verifier:     NewVerifier(runtime.NumCPU()),
 		signingQueue: make(chan server_signables, 100),
 		Context:      cntx,
@@ -66,7 +66,9 @@ func NewServerService(skey crypto.PrivateKey, s Services, network NetData) RrpcS
 		skey:         skey,
 		gsrvr:        gsrvr,
 	}
+
 	RegisterServerServer(gsrvr, srvr)
+	RegisterRelayServer(gsrvr, srvr)
 
 	srvr.WaitGroup.Add(1)
 
@@ -92,13 +94,13 @@ func serverSigner(srvr *Server) {
 	}()
 }
 
-func (s Server) Close() {
+func (s *Server) Close() {
 	s.Cancel()
 	s.WaitGroup.Wait()
 }
 
-// TODO
-func (s Server) CallStream(server Server_CallStreamServer) error {
+// CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
+func (s *Server) CallStream(server Server_CallStreamServer) error {
 	//TODO implement me
 	panic("implement me")
 }
@@ -110,7 +112,7 @@ func createDecodeFunc(payload []byte) func(v interface{}) error {
 }
 
 // DirectCall uses streams to represent a cheaper unary RPC.
-func (s Server) DirectCall(server Server_DirectCallServer) error {
+func (s *Server) DirectCall(server Server_DirectCallServer) error {
 	ip, err := GetPeerFromContext(server.Context())
 	if err != nil {
 		return status.Error(codes.InvalidArgument, "couldn't extract ip from incoming context: "+err.Error())
@@ -120,7 +122,7 @@ func (s Server) DirectCall(server Server_DirectCallServer) error {
 		return status.Error(codes.InvalidArgument, "empty ip")
 	}
 
-	clientPkey, err := s.NetData.GetPublicKey(ip)
+	clientPkey, err := s.Network.GetPublicKey(ip)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, "rrpc.network error in stream boot: "+err.Error())
 	}
@@ -198,22 +200,18 @@ func errToRpcErr(serviceError error) *status2.Status {
 	return err.Proto()
 }
 
-func (s Server) RelayStream(server Relay_RelayStreamServer) error {
+// Attest is an RPC call that any other Server uses to attest against another Server.
+func (s *Server) Attest(server Relay_AttestServer) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (s Server) Attest(server Relay_AttestServer) error {
+func (s *Server) SendProof(server Relay_SendProofServer) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (s Server) SendProof(server Relay_SendProofServer) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s Server) signNote(note *ExchangeNote) error {
+func (s *Server) signNote(note *ExchangeNote) error {
 	resp := make(chan error)
 
 	select {
