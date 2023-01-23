@@ -21,8 +21,6 @@ type NetData interface {
 	// notice that creating ecc.VerifyingEncoderDecoder might spin up goroutines.
 	NewErrorCorrectionCode() (ecc.VerifyingEncoderDecoder, error)
 
-	MaxServerFailures() int
-
 	// Servers return the list of addresses of the servers.
 	Servers() []string
 
@@ -52,7 +50,7 @@ type Network interface {
 
 	CloseConnections() error
 	PublishProof(*Proof)
-	RobustRequest(context context.Context, requests []*RelayRequest) error
+	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
 	CancelRequest(uuid string)
 }
 
@@ -86,11 +84,11 @@ type network struct {
 	conns map[string]*RelayConn
 }
 
-func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) error {
+func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
 	if len(requests) != len(n.conns) {
-		return fmt.Errorf("Bad request, number of requests differs from number of relays")
+		return nil, fmt.Errorf("Bad request, number of requests differs from number of relays")
 	}
-	responseChan := make(chan *RelayStreamResponse, len(requests))
+	responseChan := make(chan relayResponse, len(requests))
 	srvrs := n.Servers()
 	for i := range requests {
 		v, ok := n.conns[srvrs[requests[i].Parcel.RelayIndex]]
@@ -104,8 +102,33 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 		})
 	}
 
-	// TODO: now wait on the request until its ready/ until the context is done.
-	return nil
+	responses := make([]*CallStreamResponse, 0, n.MinimalRelayedParcels())
+	totalErrors := 0
+	var r relayResponse
+	var err error
+	for range responses {
+
+		select {
+		case <-context.Done():
+			return nil, context.Err()
+
+		case r = <-responseChan:
+		}
+
+		if r.RelayStreamError != nil {
+			totalErrors += 1
+			if totalErrors >= n.MaxErrors() {
+				err = status.ErrorProto(r.RelayStreamError)
+				return nil, err
+			}
+		}
+
+		responses = append(responses, r.Response)
+		if len(responses) >= n.MinimalRelayedParcels() {
+			return responses, nil
+		}
+	}
+	panic("should never arrive here")
 }
 
 func (n *network) CancelRequest(uuid string) {
@@ -160,14 +183,6 @@ func (n *network) CloseConnections() error {
 	}
 
 	return err
-}
-
-func (n *semiNet) DialToRelays() map[string]RelayConn {
-	return nil
-}
-
-func (n *semiNet) MaxServerFailures() int {
-	return 0
 }
 
 func (n *semiNet) Servers() []string {

@@ -18,9 +18,11 @@ type RelayConn struct {
 	sync.WaitGroup
 	sync.Map
 }
+type relayResponse *RelayStreamResponse
+
 type relayConnRequest struct {
 	*RelayRequest
-	response chan *RelayStreamResponse
+	response chan relayResponse
 }
 
 func NewRelayConn(address string) (*RelayConn, error) {
