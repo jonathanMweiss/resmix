@@ -27,12 +27,30 @@ var srvc Services = Services{
 	},
 }
 
-func TestName(t *testing.T) {
+type clientTestSetup struct {
+	network    Network
+	sk         crypto.PrivateKey
+	serverAddr string
+	srvrs      []RrpcServer
+}
+
+func (c *clientTestSetup) start(t *testing.T) {
+	require.NoError(t, c.network.RelayDial())
+}
+
+func (c *clientTestSetup) releaseResources() {
+	for _, srvr := range c.srvrs {
+		srvr.Stop()
+	}
+}
+
+func newClientTestSetup(t *testing.T) clientTestSetup {
 	almostAddr := "localhost:" + _serverport
 	serverAddr := "localhost:" + _serverport + "1"
 
 	sk, pk, err := crypto.GenerateKeys()
 	require.NoError(t, err)
+
 	netdata := NewNetData(&NetworkConfig{
 		Tau: 2,
 		ServerConfigs: []ServerData{
@@ -53,21 +71,33 @@ func TestName(t *testing.T) {
 	network := NewNetwork(netdata, sk)
 	require.NoError(t, err)
 
+	srvrs := make([]RrpcServer, 0, len(netdata.Servers()))
 	for _, s := range netdata.Servers() {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
 
 		srvr := NewServerService(sk, srvc, network)
-		defer srvr.Stop()
+		srvrs = append(srvrs, srvr)
 		go func() {
 			require.NoError(t, srvr.Serve(l))
 		}()
 	}
 
-	// Ensuring the network dials to all relays.
-	require.NoError(t, network.RelayDial())
+	return clientTestSetup{
+		network:    network,
+		sk:         sk,
+		serverAddr: serverAddr,
+		srvrs:      srvrs,
+	}
+}
 
-	c := NewClient(sk, serverAddr, network)
+func TestDirectCall(t *testing.T) {
+	setup := newClientTestSetup(t)
+	setup.start(t)
+	defer setup.releaseResources()
+
+	// Ensuring the network dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.network)
 	req := &Request{
 		Args:    nil,
 		Reply:   new(string),
@@ -75,7 +105,6 @@ func TestName(t *testing.T) {
 		Uuid:    "1234",
 		Context: context.Background(),
 	}
-
 	require.NoError(t, c.DirectCall(req))
 	require.Equal(t, _minimal_service_reply, *(req.Reply.(*string)))
 	time.Sleep(time.Second)
