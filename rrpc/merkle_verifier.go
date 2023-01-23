@@ -31,7 +31,8 @@ func newSigState() *signatureState {
 
 // changes the state indefinitely.
 func (t *signatureState) shouldVerifySig() bool {
-	// compare to the original value which is 0, if it okay will swap with -1 indicating now that it's no longer available for signing.
+	// compare to the original value which is 0, if it okay will swap with
+	// -1 indicating now that it's no longer available for signing.
 	return atomic.CompareAndSwapInt64(t.state, 0, -1)
 }
 
@@ -211,12 +212,16 @@ func (m *MerkleCertVerifier) setWorkers(numWorkeres int) {
 	}
 }
 
-func unpackMerkleCert(cert *MerkleCertificate) (root crypto.Digest, proof []crypto.Digest, signature []byte, leafIndex uint64) {
+func unpackMerkleCert(cert *MerkleCertificate) (
+	root crypto.Digest, proof []crypto.Digest, signature []byte, leafIndex uint64) {
 	r, path, signature, leafIndex := cert.Root, cert.Path, cert.Signature, cert.Index
 	copy(root[:], r)
+
 	proof = make([]crypto.Digest, len(path))
+
 	for i := range path {
 		copy(proof[i][:], path[i])
 	}
+
 	return
 }

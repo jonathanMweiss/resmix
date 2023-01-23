@@ -69,14 +69,20 @@ func (s PrivateKey) Marshal() []byte {
 
 func DecodePKey(encodedPubKey []byte) (PublicKey, error) {
 	if len(encodedPubKey) != ed25519.PublicKeySize {
-		return nil, errors.New(fmt.Sprintf("bad key size, expected:%v received: %v", ed25519.PublicKeySize, len(encodedPubKey)))
+		return nil, errors.New(
+			fmt.Sprintf("bad key size, expected:%v received: %v", ed25519.PublicKeySize, len(encodedPubKey)),
+		)
 	}
 	return encodedPubKey, nil
 }
 
 func DecodeSKey(encodedPrivateKey []byte) (PrivateKey, error) {
 	if len(encodedPrivateKey) != ed25519.PrivateKeySize {
-		return nil, errors.New(fmt.Sprintf("bad key size, expected:%v received: %v", ed25519.PrivateKeySize, len(encodedPrivateKey)))
+		return nil, errors.New(
+			fmt.Sprintf(
+				"bad key size, expected:%v received: %v", ed25519.PrivateKeySize, len(encodedPrivateKey),
+			),
+		)
 	}
 	return encodedPrivateKey, nil
 }

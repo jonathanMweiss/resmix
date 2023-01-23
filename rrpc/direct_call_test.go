@@ -68,16 +68,18 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 			},
 		},
 	})
+
 	network := NewNetwork(netdata, sk)
-	require.NoError(t, err)
 
 	srvrs := make([]RrpcServer, 0, len(netdata.Servers()))
+
 	for _, s := range netdata.Servers() {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
 
 		srvr := NewServerService(sk, srvc, network)
 		srvrs = append(srvrs, srvr)
+
 		go func() {
 			require.NoError(t, srvr.Serve(l))
 		}()
@@ -93,6 +95,7 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 
 func TestDirectCall(t *testing.T) {
 	setup := newClientTestSetup(t)
+
 	setup.start(t)
 	defer setup.releaseResources()
 

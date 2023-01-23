@@ -69,6 +69,7 @@ func NewServerService(skey crypto.PrivateKey, s Services, network NetData) RrpcS
 	RegisterServerServer(gsrvr, srvr)
 
 	srvr.WaitGroup.Add(1)
+
 	go serverSigner(srvr)
 
 	return srvr
@@ -77,6 +78,7 @@ func NewServerService(skey crypto.PrivateKey, s Services, network NetData) RrpcS
 func serverSigner(srvr *Server) {
 	func() {
 		defer srvr.WaitGroup.Done()
+
 		for {
 			select {
 			case <-srvr.Context.Done():
@@ -178,10 +180,12 @@ func intoDirectCallResponse(serviceError error, serviceOut interface{}) (isDirec
 	if serviceError != nil {
 		return &DirectCallResponse_RpcError{errToRpcErr(serviceError)}, nil
 	}
+
 	responsePayload, err := codec.Marshal(serviceOut)
 	if err != nil {
 		return nil, err
 	}
+
 	return &DirectCallResponse_Payload{responsePayload}, nil
 }
 

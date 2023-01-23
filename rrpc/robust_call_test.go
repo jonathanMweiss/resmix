@@ -10,6 +10,7 @@ import (
 
 func TestRobustCall(t *testing.T) {
 	setup := newClientTestSetup(t)
+
 	setup.start(t)
 	defer setup.releaseResources()
 

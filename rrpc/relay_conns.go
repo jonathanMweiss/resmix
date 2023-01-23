@@ -47,14 +47,17 @@ func NewRelayConn(address string) (*RelayConn, error) {
 	}
 
 	r.WaitGroup.Add(1)
+
 	go func() {
 		defer r.WaitGroup.Done()
+
 		for {
 			select {
 			case <-r.Context.Done():
 				if err := sendProofStream.CloseSend(); err != nil {
 					fmt.Println("closing streamProof failed:", err)
 				}
+
 				return
 			case prf := <-r.sendProofChan:
 				if err := sendProofStream.Send(&Proofs{
@@ -84,6 +87,7 @@ func (r *RelayConn) SendProof(proof *Proof) {
 func (r *RelayConn) Close() error {
 	r.CancelFunc()
 	r.WaitGroup.Wait()
+
 	return r.ClientConn.Close()
 }
 

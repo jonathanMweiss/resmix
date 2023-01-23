@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testCorrectDecodeTiny(t *testing.T, rs VerifyingEncoderDecoder) {
@@ -85,71 +86,76 @@ func testCorrectDecodeWithCorruptions(t *testing.T, rs VerifyingEncoderDecoder) 
 func BenchmarkNewRSEncoderDecoder200mb(b *testing.B) {
 	rs, _ := NewRSEncoderDecoder(11, 9)
 	buff200mb := make([]byte, 1024*1024*200)
-	rand.Read(buff200mb)
+	_, _ = rand.Read(buff200mb)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		shards, _ := rs.AuthEncode(buff200mb)
-		rs.AuthReconstruct(shards, 1024*1024*200)
+		_, err := rs.AuthReconstruct(shards, 1024*1024*200)
+		require.NoError(b, err)
 	}
 }
 
 func BenchmarkNewRSEncoderDecoderJustEncoding200m(b *testing.B) {
 	rs, _ := NewRSEncoderDecoder(11, 9)
 	buff200mb := make([]byte, 1024*1024*200)
-	rand.Read(buff200mb)
+	_, _ = rand.Read(buff200mb)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		func() {}()
-		rs.AuthEncode(buff200mb)
+		_, err := rs.AuthEncode(buff200mb)
+		require.NoError(b, err)
 	}
 }
 func BenchmarkNewRSEncoderDecoderJustDecoding200mb(b *testing.B) {
 	rs, _ := NewRSEncoderDecoder(11, 9)
 	buff200mb := make([]byte, 1024*1024*200)
-	rand.Read(buff200mb)
+	_, _ = rand.Read(buff200mb)
 
 	shards, _ := rs.AuthEncode(buff200mb)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		rs.AuthReconstruct(shards, 1024*1024*200)
+		_, err := rs.AuthReconstruct(shards, 1024*1024*200)
+		require.NoError(b, err)
 	}
 }
 
 func BenchmarkNewRSEncoderDecoder400mb(b *testing.B) {
 	rs, _ := NewRSEncoderDecoder(11, 9)
 	buff400mb := make([]byte, 1024*1024*400)
-	rand.Read(buff400mb)
+	_, _ = rand.Read(buff400mb)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		shards, _ := rs.AuthEncode(buff400mb)
-		rs.AuthReconstruct(shards, 1024*1024*400)
+		_, err := rs.AuthReconstruct(shards, 1024*1024*400)
+		require.NoError(b, err)
 	}
 }
 
 func BenchmarkNewRSEncoderDecoderJustEncoding400m(b *testing.B) {
 	rs, _ := NewRSEncoderDecoder(11, 9)
 	buff200mb := make([]byte, 1024*1024*400)
-	rand.Read(buff200mb)
+	_, _ = rand.Read(buff200mb)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		rs.AuthEncode(buff200mb)
+		_, err := rs.AuthEncode(buff200mb)
+		require.NoError(b, err)
 	}
 }
 func BenchmarkNewRSEncoderDecoderJustDecoding400mb(b *testing.B) {
 	rs, _ := NewRSEncoderDecoder(11, 9)
 	buff200mb := make([]byte, 1024*1024*400)
-	rand.Read(buff200mb)
+	_, _ = rand.Read(buff200mb)
 
 	shards, _ := rs.AuthEncode(buff200mb)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		rs.AuthReconstruct(shards, 1024*1024*400)
+		_, err := rs.AuthReconstruct(shards, 1024*1024*400)
+		require.NoError(b, err)
 	}
 }
 

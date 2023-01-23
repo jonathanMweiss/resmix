@@ -27,15 +27,18 @@ func (a array) Get(pos uint64) (crypto.Hashable, error) {
 	if length == 0 {
 		return nil, fmt.Errorf("empty array")
 	}
+
 	if pos >= length {
 		return nil, fmt.Errorf("pos %d larger than length %d", pos, length)
 	}
+
 	return a[pos], nil
 }
 
 func merkleSign(arr []MerkleCertifiable, sk crypto.PrivateKey) error {
 	// Not recycling the buffer here because.
 	treeBuffer := bytes.NewBuffer(make([]byte, 0, 2*len(arr)*crypto.DigestSize))
+
 	tree, err := merklearray.Build((array)(arr), treeBuffer)
 	if err != nil {
 		return err
@@ -44,17 +47,20 @@ func merkleSign(arr []MerkleCertifiable, sk crypto.PrivateKey) error {
 	root := tree.Root()
 
 	sigBuffer := bytes.NewBuffer(make([]byte, 0, 64))
+
 	sig, err := sk.OWSign(root, sigBuffer)
 	if err != nil {
 		return err
 	}
 
 	treeBuffer.Reset()
+
 	for i := range arr {
 		proof, err := tree.Prove([]uint64{uint64(i)}, treeBuffer)
 		if err != nil {
 			return err
 		}
+
 		arr[i].SetMerkleCert(root, proof, i, sig)
 	}
 
@@ -63,19 +69,23 @@ func merkleSign(arr []MerkleCertifiable, sk crypto.PrivateKey) error {
 
 func proofIntoBytes(proof []crypto.Digest) [][]byte {
 	byteProof := make([][]byte, len(proof))
+
 	for i, p := range proof {
 		p := p
 		byteProof[i] = p[:]
 	}
+
 	return byteProof
 }
 
 func prepareForHashing(m interface{}, w crypto.BWriter) (crypto.HashID, []byte) {
 	start := w.Len()
+
 	if err := codec.MarshalIntoWriter(m, w); err != nil {
 		// TODO maybe panic
 		return "", nil
 	}
+
 	return crypto.Message, w.Bytes()[start:]
 }
 
@@ -99,6 +109,7 @@ func (p *Parcel) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
 func (p *Parcel) popCert() *MerkleCertificate {
 	cert := p.Signature
 	p.Signature = nil
+
 	return cert
 }
 
@@ -119,9 +130,11 @@ func (r *RelayRequest) pushCert(certificate *MerkleCertificate) {
 
 func (r *RelayRequest) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
 	start := w.Len()
+
 	if err := codec.MarshalIntoWriter(r.Parcel, w); err != nil {
 		panic("cannot hash relay request!")
 	}
+
 	return crypto.Message, w.Bytes()[start:]
 }
 
@@ -163,6 +176,7 @@ type senderNote ExchangeNote
 func (m *senderNote) popCert() *MerkleCertificate {
 	cert := m.SenderMerkleProof
 	m.SenderMerkleProof = nil
+
 	return cert
 }
 
@@ -188,6 +202,7 @@ type receiverNote ExchangeNote
 func (r *receiverNote) popCert() *MerkleCertificate {
 	cert := r.ReceiverMerkleProof
 	r.ReceiverMerkleProof = nil
+
 	return cert
 }
 

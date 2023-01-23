@@ -39,5 +39,6 @@ func (c CustomCodec) Name() string {
 
 func GetGrpcClient(target string, grpcOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	// Now i can edit every connection at once
-	return grpc.Dial(target, append(grpcOpts, grpc.WithDefaultCallOptions(grpc.CallContentSubtype(CustomCodec{}.String())))...)
+	opts := append(grpcOpts, grpc.WithDefaultCallOptions(grpc.CallContentSubtype(CustomCodec{}.String())))
+	return grpc.Dial(target, opts...)
 }

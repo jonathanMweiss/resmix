@@ -53,7 +53,8 @@ func RandUint64() uint64 {
 	return binary.LittleEndian.Uint64(eightbytes[:])
 }
 
-// RandUint63 returns a random 64-bit unsigned integer which can be stored in a 64-bit signed integer without any data loss.
+// RandUint63 returns a random 64-bit unsigned integer which can be
+// stored in a 64-bit signed integer without any data loss.
 func RandUint63() uint64 {
 	// use the RandUint64() function and clear the highest bit.
 	return RandUint64() & ((1 << 63) - 1)
@@ -61,8 +62,7 @@ func RandUint63() uint64 {
 
 // RandBytes fills the provided structure with a set of random bytes
 func RandBytes(buf []byte) {
-	_, err := rand.Read(buf)
-	if err != nil {
+	if _, err := rand.Read(buf); err != nil {
 		logging.Base().Fatal("cannot read random bytes")
 	}
 }
