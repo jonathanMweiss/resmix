@@ -3,13 +3,11 @@ package rrpc
 import (
 	"context"
 	"net"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 )
 
 const _serverport = "5005"
@@ -52,29 +50,24 @@ func TestName(t *testing.T) {
 			},
 		},
 	})
-	for _, s := range netdata.Servers() {
-		srvr := NewServerService(sk, srvc, netdata)
+	network := NewNetwork(netdata, sk)
+	require.NoError(t, err)
 
+	for _, s := range netdata.Servers() {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
 
-		gsrvr := grpc.NewServer()
-		RegisterServerServer(gsrvr, srvr)
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-		defer wg.Wait()
-
-		defer gsrvr.Stop()
+		srvr := NewServerService(sk, srvc, network)
+		defer srvr.Stop()
 		go func() {
-			defer wg.Done()
-			require.NoError(t, gsrvr.Serve(l))
+			require.NoError(t, srvr.Serve(l))
 		}()
 	}
 
-	network, err := NewNetwork(netdata, sk)
-	require.NoError(t, err)
-	c := NewClient(sk, serverAddr, network)
+	// Ensuring the network dials to all relays.
+	require.NoError(t, network.RelayDial())
 
+	c := NewClient(sk, serverAddr, network)
 	req := &Request{
 		Args:    nil,
 		Reply:   new(string),

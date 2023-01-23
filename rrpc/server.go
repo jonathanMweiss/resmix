@@ -3,6 +3,7 @@ package rrpc
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"runtime"
 	"sync"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"golang.org/x/net/context"
 	status2 "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 )
@@ -17,8 +19,9 @@ import (
 type RrpcServer interface {
 	RelayServer
 	ServerServer
+	Serve(lis net.Listener) error
+	Stop()
 }
-
 type server_signables struct {
 	MerkleCertifiable
 	signatureDone chan error
@@ -27,7 +30,7 @@ type server_signables struct {
 type Server struct {
 	Services
 	NetData
-	*MerkleCertVerifier
+	verifier     *MerkleCertVerifier
 	signingQueue chan server_signables
 	skey         crypto.PrivateKey
 
@@ -35,23 +38,39 @@ type Server struct {
 	*sync.WaitGroup
 	Cancel context.CancelFunc
 	context.Context
+	gsrvr *grpc.Server
+}
+
+func (s Server) Stop() {
+	s.gsrvr.Stop()
+	s.Cancel()
+	s.WaitGroup.Wait()
+}
+
+func (s Server) Serve(lis net.Listener) error {
+	return s.gsrvr.Serve(lis)
 }
 
 func NewServerService(skey crypto.PrivateKey, s Services, network NetData) RrpcServer {
 	cntx, cancelf := context.WithCancel(context.Background())
+	gsrvr := grpc.NewServer()
+
 	srvr := &Server{
-		Services:           s,
-		NetData:            network,
-		MerkleCertVerifier: NewVerifier(runtime.NumCPU()),
-		signingQueue:       make(chan server_signables, 100),
-		Context:            cntx,
-		Cancel:             cancelf,
-		WaitGroup:          &sync.WaitGroup{},
-		skey:               skey,
+		Services:     s,
+		NetData:      network,
+		verifier:     NewVerifier(runtime.NumCPU()),
+		signingQueue: make(chan server_signables, 100),
+		Context:      cntx,
+		Cancel:       cancelf,
+		WaitGroup:    &sync.WaitGroup{},
+		skey:         skey,
+		gsrvr:        gsrvr,
 	}
+	RegisterServerServer(gsrvr, srvr)
 
 	srvr.WaitGroup.Add(1)
 	go serverSigner(srvr)
+
 	return srvr
 }
 
@@ -126,7 +145,7 @@ func (s Server) DirectCall(server Server_DirectCallServer) error {
 			)
 		}
 
-		if err := s.Verify(request.Note.SenderID, (*senderNote)(request.Note)); err != nil {
+		if err := s.verifier.Verify(request.Note.SenderID, (*senderNote)(request.Note)); err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 

@@ -48,7 +48,9 @@ type NetData interface {
 type Network interface {
 	NetData
 
+	RelayDial() error
 	CloseConnections() error
+
 	PublishProof(*Proof)
 	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
 	CancelRequest(uuid string)
@@ -147,34 +149,15 @@ func (n *network) GetRelayConn(hostname string) *RelayConn {
 	return n.conns[hostname]
 }
 
-func NewNetwork(netdata NetData, skey crypto.PrivateKey) (Network, error) {
-	n := &network{
+func NewNetwork(netdata NetData, skey crypto.PrivateKey) Network {
+	return &network{
 		NetData: netdata,
 		skey:    skey,
 		conns:   make(map[string]*RelayConn, len(netdata.Servers())),
 	}
-
-	for _, s := range netdata.Servers() {
-		conn, err := NewRelayConn(s)
-		if err != nil {
-			goto closeAll
-		}
-
-		n.conns[s] = conn
-	}
-
-	return n, nil
-
-closeAll:
-	err := n.CloseConnections()
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect, disconnect status: %w", err)
-	}
-	return nil, fmt.Errorf("failed to connect")
 }
 
 func (n *network) CloseConnections() error {
-
 	var err error
 	for _, conn := range n.conns {
 		if err = conn.Close(); err != nil {
@@ -183,6 +166,19 @@ func (n *network) CloseConnections() error {
 	}
 
 	return err
+}
+
+func (n *network) RelayDial() error {
+	for _, s := range n.NetData.Servers() {
+		conn, err := NewRelayConn(s)
+		if err != nil {
+			return n.CloseConnections()
+		}
+
+		n.conns[s] = conn
+	}
+
+	return nil
 }
 
 func (n *semiNet) Servers() []string {
