@@ -149,6 +149,7 @@ func (n *network) GetRelayConn(hostname string) *RelayConn {
 	return n.conns[hostname]
 }
 
+// NewNetwork creates a Network that is tied to a speicific node. cannot reuse for different nodes on same machine!
 func NewNetwork(netdata NetData, skey crypto.PrivateKey) Network {
 	return &network{
 		NetData: netdata,
