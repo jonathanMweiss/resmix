@@ -3,7 +3,9 @@ package rrpc
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -14,18 +16,23 @@ type RelayConn struct {
 	RelayClient
 	context.Context
 	context.CancelFunc
-	sendProofChan chan *Proof
 	sync.WaitGroup
-	sync.Map
+
+	sendProofChan chan *Proof
+	requests      chan *RelayStreamRequest
+	liveTasks     sync.Map
+	index         int
 }
+
 type relayResponse *RelayStreamResponse
 
 type relayConnRequest struct {
 	*RelayRequest
 	response chan relayResponse
+	time.Time
 }
 
-func NewRelayConn(address string) (*RelayConn, error) {
+func NewRelayConn(address string, index int) (*RelayConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -39,6 +46,13 @@ func NewRelayConn(address string) (*RelayConn, error) {
 		RelayClient: relayClient,
 		Context:     ctx,
 		CancelFunc:  cancel,
+		WaitGroup:   sync.WaitGroup{},
+
+		index: index,
+
+		sendProofChan: make(chan *Proof, 100),
+		requests:      make(chan *RelayStreamRequest, 100),
+		liveTasks:     sync.Map{},
 	}
 
 	sendProofStream, err := relayClient.SendProof(ctx)
@@ -46,31 +60,62 @@ func NewRelayConn(address string) (*RelayConn, error) {
 		return nil, err
 	}
 
-	r.WaitGroup.Add(1)
+	relayStreamClient, err := relayClient.RelayStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	r.WaitGroup.Add(4)
+
+	go r.proofSendingStream(sendProofStream)
+
+	go r.parcelStream(relayStreamClient)
+
+	go r.receiveParcels(relayStreamClient)
 
 	go func() {
-		defer r.WaitGroup.Done()
+		// todo find way to reuse code here...
+		cleanTime := time.NewTicker(time.Second * 5)
 
 		for {
 			select {
 			case <-r.Context.Done():
-				if err := sendProofStream.CloseSend(); err != nil {
-					fmt.Println("closing streamProof failed:", err)
-				}
-
 				return
-			case prf := <-r.sendProofChan:
-				if err := sendProofStream.Send(&Proofs{
-					Proofs: []*Proof{prf}, // todo send more than one.
-				}); err != nil {
-					fmt.Println("sending proof error:", err)
-				}
+			case <-cleanTime.C:
+				cur := time.Now()
+				r.liveTasks.Range(func(key, value interface{}) bool {
+					if cur.Sub(value.(relayConnRequest).Time) > time.Second*5 {
+						r.liveTasks.Delete(key)
+					}
+
+					return true
+				})
 			}
 		}
 	}()
-	// setup streams. then you can send through functions on this client, and expect a response when ready.
 
 	return r, nil
+}
+
+func (r *RelayConn) proofSendingStream(sendProofStream Relay_SendProofClient) {
+	defer r.WaitGroup.Done()
+
+	for {
+		select {
+		case <-r.Context.Done():
+			if err := sendProofStream.CloseSend(); err != nil {
+				fmt.Println("closing streamProof failed:", err)
+			}
+
+			return
+		case prf := <-r.sendProofChan:
+			if err := sendProofStream.Send(&Proofs{
+				Proofs: []*Proof{prf}, // todo send more than one.
+			}); err != nil {
+				fmt.Println("sending proof error:", err)
+			}
+		}
+	}
 }
 
 func (r *RelayConn) SendProof(proof *Proof) {
@@ -92,15 +137,72 @@ func (r *RelayConn) Close() error {
 }
 
 func (r *RelayConn) cancelRequest(uuid string) {
-	r.Map.Delete(uuid)
+	r.liveTasks.Delete(uuid)
 }
 
-// prepares this connection to receive a response for a request with the given uuid.
-func (r *RelayConn) prepareForRequest(request []*RelayRequest) {
-
+func (r *RelayConn) sendRequest(rqst relayConnRequest) {
+	r.liveTasks.Store(rqst.Parcel.Note.Calluuid, rqst.response)
+	select {
+	case <-r.Context.Done():
+		return
+	case r.requests <- &RelayStreamRequest{
+		Request: rqst.RelayRequest,
+	}:
+	}
 }
 
-func (r *RelayConn) sendRequest(relayConnRequest) {
-	// TODO:
-	panic("not implemented")
+func (r *RelayConn) parcelStream(stream Relay_RelayStreamClient) {
+	defer r.WaitGroup.Done()
+
+	var rqst *RelayStreamRequest
+	for {
+		select {
+		case <-r.Context.Done():
+			return
+		case rqst = <-r.requests:
+			err := stream.Send(rqst)
+			if err == io.EOF {
+				fmt.Printf("relay(%d) stream close\n", r.index)
+				return
+			}
+			if err != nil {
+				fmt.Printf("relay(%d) stream error: %v\n", r.index, err)
+			}
+		}
+	}
+}
+
+func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
+	defer r.WaitGroup.Done()
+
+	for {
+
+		select {
+		case <-r.Context.Done():
+			return
+		default:
+		}
+
+		out, err := stream.Recv()
+		if err == io.EOF {
+
+			return
+		}
+
+		if err != nil {
+			fmt.Printf("relay(%d) stream error: %v\n", r.index, err)
+			continue
+		}
+
+		task, ok := r.liveTasks.LoadAndDelete(out.Uuid)
+		if !ok {
+			continue
+		}
+
+		if task.(relayConnRequest).response == nil {
+			continue
+		}
+
+		task.(relayConnRequest).response <- out
+	}
 }

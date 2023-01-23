@@ -97,7 +97,7 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 		if !ok {
 			panic("relay index not found")
 		}
-		v.prepareForRequest(requests)
+
 		v.sendRequest(relayConnRequest{
 			RelayRequest: requests[i],
 			response:     responseChan,
@@ -169,8 +169,8 @@ func (n *network) CloseConnections() error {
 }
 
 func (n *network) RelayDial() error {
-	for _, s := range n.NetData.Servers() {
-		conn, err := NewRelayConn(s)
+	for index, s := range n.NetData.Servers() {
+		conn, err := NewRelayConn(s, index)
 		if err != nil {
 			return n.CloseConnections()
 		}
