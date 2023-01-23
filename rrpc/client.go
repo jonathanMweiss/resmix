@@ -1,6 +1,7 @@
 package rrpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/ecc"
-	"github.com/jonathanMweiss/resmix/internal/freelist"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,8 +29,8 @@ type client struct {
 
 	waitingTasks sync.Map // [uuid, chan Response of type?]
 
-	wg sync.WaitGroup
-	//verifier *MerkleCertVerifier
+	wg         sync.WaitGroup
+	bufferpool sync.Pool
 
 	identifier []byte
 	serverID   []byte
@@ -82,7 +82,6 @@ func (c *client) setServerStream() error {
 	go func() {
 		defer c.wg.Done()
 		for {
-
 			select {
 			case task := <-c.directCallSendChannel:
 				rqst := &DirectCallRequest{
@@ -209,6 +208,8 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 		directCallSendChannel: make(chan *rqstWithErr[*Request], 10),
 		Context:               ctx,
 		CancelFunc:            cancel,
+
+		bufferpool: sync.Pool{New: func() interface{} { return new(bytes.Buffer) }},
 	}
 
 	if err := c.setServerStream(); err != nil {
@@ -267,6 +268,8 @@ func (c *client) RobustCall(req *Request) error {
 		signables = append(signables, robustCallRequests[i])
 	}
 
+	bf := c.bufferpool.Get().(*bytes.Buffer)
+	defer c.bufferpool.Put(bf)
 	if err := merkleSign(signables, c.secretKey); err != nil {
 		return err
 	}
@@ -283,10 +286,8 @@ func (c *client) RobustCall(req *Request) error {
 }
 
 func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
-	bf, dn := freelist.Get()
-	defer dn()
 
-	if err := rq.packWithBuffer(bf); err != nil {
+	if err := rq.pack(); err != nil {
 		return nil, err
 	}
 

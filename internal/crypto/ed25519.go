@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jonathanMweiss/resmix/internal/freelist"
-
 	"github.com/jonathanMweiss/resmix/internal/codec"
 )
 
@@ -33,14 +31,6 @@ func (s PrivateKey) Sign(msg []byte) []byte {
 	return ed25519.Sign((ed25519.PrivateKey)(s), msg)
 }
 
-// OSign signs any object by marshaling it first into bytecode, and then signs it.
-func (s PrivateKey) OSign(v interface{}) ([]byte, error) {
-	bf, dn := freelist.Get()
-	o, err := s.OWSign(v, bf)
-	dn()
-	return o, err
-}
-
 // OWSign signs any object by marshaling it first into bytecode using a buffer, and then signs it.
 func (s PrivateKey) OWSign(v interface{}, w BWriter) ([]byte, error) {
 	start := w.Len()
@@ -52,14 +42,6 @@ func (s PrivateKey) OWSign(v interface{}, w BWriter) ([]byte, error) {
 
 func (p PublicKey) Verify(sig, msg []byte) bool {
 	return ed25519.Verify(ed25519.PublicKey(p), msg, sig)
-}
-
-// OVerify verifies any object by marshaling it first into bytecode, and then verify it.
-func (p PublicKey) OVerify(sig []byte, v interface{}) (bool, error) {
-	bf, dn := freelist.Get()
-	o, err := p.OWVerify(v, sig, bf)
-	dn()
-	return o, err
 }
 
 // OWVerify is similar to OVerify, but optimised to write into a buffer with the wanted capacity.

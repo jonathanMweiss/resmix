@@ -34,24 +34,30 @@ func (a array) Get(pos uint64) (crypto.Hashable, error) {
 }
 
 func merkleSign(arr []MerkleCertifiable, sk crypto.PrivateKey) error {
-	bf := bytes.NewBuffer(make([]byte, 0, len(arr)*crypto.DigestSize))
-	tree, err := merklearray.Build((array)(arr), bf)
+	// Not recycling the buffer here because.
+	treeBuffer := bytes.NewBuffer(make([]byte, 0, 2*len(arr)*crypto.DigestSize))
+	tree, err := merklearray.Build((array)(arr), treeBuffer)
 	if err != nil {
 		return err
 	}
-	r := tree.Root()
-	sig, err := sk.OSign(r)
+
+	root := tree.Root()
+
+	sigBuffer := bytes.NewBuffer(make([]byte, 0, 64))
+	sig, err := sk.OWSign(root, sigBuffer)
 	if err != nil {
 		return err
 	}
-	bf.Reset()
+
+	treeBuffer.Reset()
 	for i := range arr {
-		proof, err := tree.Prove([]uint64{uint64(i)}, bf)
+		proof, err := tree.Prove([]uint64{uint64(i)}, treeBuffer)
 		if err != nil {
 			return err
 		}
-		arr[i].SetMerkleCert(r, proof, i, sig)
+		arr[i].SetMerkleCert(root, proof, i, sig)
 	}
+
 	return nil
 }
 
