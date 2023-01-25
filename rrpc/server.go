@@ -30,7 +30,7 @@ type server_signables struct {
 
 type Server struct {
 	Services
-	Network
+	ServerNetwork
 	verifier     *MerkleCertVerifier
 	signingQueue chan server_signables
 	skey         crypto.PrivateKey
@@ -52,30 +52,39 @@ func (s *Server) Serve(lis net.Listener) error {
 	return s.gsrvr.Serve(lis)
 }
 
-func NewServerService(skey crypto.PrivateKey, s Services, network Network) RrpcServer {
+func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork) RrpcServer {
 	cntx, cancelf := context.WithCancel(context.Background())
 	gsrvr := grpc.NewServer()
 
 	srvr := &Server{
-		Services:     s,
-		Network:      network,
-		verifier:     NewVerifier(runtime.NumCPU()),
-		signingQueue: make(chan server_signables, 100),
-		Context:      cntx,
-		Cancel:       cancelf,
-		WaitGroup:    &sync.WaitGroup{},
-		skey:         skey,
-		gsrvr:        gsrvr,
+		Services:      s,
+		ServerNetwork: network,
+		verifier:      NewVerifier(runtime.NumCPU()),
+		signingQueue:  make(chan server_signables, 100),
+		Context:       cntx,
+		Cancel:        cancelf,
+		WaitGroup:     &sync.WaitGroup{},
+		skey:          skey,
+		gsrvr:         gsrvr,
 	}
 
 	RegisterServerServer(gsrvr, srvr)
 	RegisterRelayServer(gsrvr, srvr)
 
-	srvr.WaitGroup.Add(1)
+	srvr.WaitGroup.Add(2)
 
 	go serverSigner(srvr)
 
+	go relayStreamSetup(srvr)
+
 	return srvr
+}
+
+func relayStreamSetup(srvr *Server) {
+	incomingChan := srvr.ServerNetwork.Incoming()
+	_ = incomingChan
+
+	// create someone that waits on all channel of anything that comes back from the network ...
 }
 
 func serverSigner(srvr *Server) {
@@ -123,7 +132,7 @@ func (s *Server) DirectCall(server Server_DirectCallServer) error {
 		return status.Error(codes.InvalidArgument, "empty ip")
 	}
 
-	clientPkey, err := s.Network.GetPublicKey(ip)
+	clientPkey, err := s.ServerNetwork.GetPublicKey(ip)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, "rrpc.network error in stream boot: "+err.Error())
 	}

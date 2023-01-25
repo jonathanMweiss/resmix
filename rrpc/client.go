@@ -76,7 +76,7 @@ func (c *client) setServerStream() error {
 				continue
 			}
 
-			c.network.PublishProof(&Proof{
+			c.network.GetRelayGroup().PublishProof(&Proof{
 				ServerHostname:   c.serverAddr,
 				WorkExchangeNote: msg.Note,
 			})

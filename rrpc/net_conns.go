@@ -227,6 +227,11 @@ type ServerConn struct {
 	context    context.Context
 	cancel     context.CancelFunc
 	cc         *grpc.ClientConn
+	stream     Server_CallStreamClient
+
+	toSend     chan *CallStreamRequest
+	outputChan chan *CallStreamResponse
+	wg         sync.WaitGroup
 }
 
 func (c *ServerConn) Close() error {
@@ -234,19 +239,78 @@ func (c *ServerConn) Close() error {
 	return c.cc.Close()
 }
 
-func newServerConn(address string) (*ServerConn, error) {
+func newServerConn(address string, output chan *CallStreamResponse) (*ServerConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+
 	con := NewServerClient(cc)
-	return &ServerConn{
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	stream, err := con.CallStream(ctx)
+	if err != nil {
+		cancel()
+
+		return nil, cc.Close()
+	}
+
+	conn := &ServerConn{
 		cc:         cc,
 		clientConn: con,
+		stream:     stream,
 		context:    ctx,
 		cancel:     cancel,
-	}, nil
+
+		wg:         sync.WaitGroup{},
+		toSend:     make(chan *CallStreamRequest, 100),
+		outputChan: output,
+	}
+
+	conn.wg.Add(2)
+
+	go func() {
+		defer conn.wg.Done()
+		var tosend *CallStreamRequest
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case tosend = <-conn.toSend:
+			}
+
+			err := conn.stream.Send(tosend)
+			if isEOFFromServer(err) {
+				return
+			}
+
+			if err != nil {
+				fmt.Println("serverconn::sending stream error:", err)
+			}
+		}
+	}()
+
+	go func() {
+		defer conn.wg.Done()
+
+		for {
+			o, err := conn.stream.Recv()
+			if isEOFFromServer(err) {
+				return
+			}
+
+			if err != nil {
+				fmt.Println("serverconn::receiving stream error:", err)
+				continue
+			}
+
+			conn.outputChan <- o
+		}
+	}()
+
+	return conn, nil
 }
 
 func (c *ServerConn) NewCallStream() (Server_CallStreamClient, error) {

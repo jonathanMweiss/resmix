@@ -47,6 +47,7 @@ type NetData interface {
 type RelayGroup interface {
 	CancelRequest(uuid string)
 	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
+	PublishProof(*Proof)
 }
 
 // Network contains any data used in the rrpc, along with Connections to the relays.
@@ -57,12 +58,16 @@ type Network interface {
 	CloseConnections() error
 
 	GetRelayGroup() RelayGroup
+}
 
-	GetServerConn(hostname string) *ServerConn
+type ServerNetwork interface {
+	Network
 
-	PublishProof(*Proof)
-	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
-	CancelRequest(uuid string)
+	AsyncSend(address string, msg *CallStreamRequest)
+
+	// Incoming returns anything(!) even timeouts that came over the
+	// network, from any of the servers this network is listening on!
+	Incoming() <-chan *CallStreamResponse
 }
 
 type ServerData struct {
@@ -95,10 +100,17 @@ type network struct {
 	skey        crypto.PrivateKey
 	relayConns  map[string]*RelayConn
 	serverConns map[string]*ServerConn
+
+	callResponseChan chan *CallStreamResponse
 }
 
-func (n *network) GetServerConn(hostname string) *ServerConn {
-	return n.serverConns[hostname]
+func (n *network) AsyncSend(address string, msg *CallStreamRequest) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *network) Incoming() <-chan *CallStreamResponse {
+	return n.callResponseChan
 }
 
 func (n *network) GetRelayGroup() RelayGroup {
@@ -169,7 +181,7 @@ func (n *network) GetRelayConn(hostname string) *RelayConn {
 }
 
 // NewNetwork creates a Network that is tied to a speicific node. cannot reuse for different nodes on same machine!
-func NewNetwork(netdata NetData, skey crypto.PrivateKey) Network {
+func NewNetwork(netdata NetData, skey crypto.PrivateKey) ServerNetwork {
 	return &network{
 		NetData:     netdata,
 		skey:        skey,
@@ -179,6 +191,7 @@ func NewNetwork(netdata NetData, skey crypto.PrivateKey) Network {
 }
 
 func (n *network) CloseConnections() error {
+	close(n.callResponseChan)
 	var err error
 	for _, conn := range n.relayConns {
 		if err = conn.Close(); err != nil {
@@ -204,7 +217,7 @@ func (n *network) Dial() error {
 
 		n.relayConns[s] = relayConn
 
-		serverConn, err := newServerConn(s)
+		serverConn, err := newServerConn(s, n.callResponseChan)
 		if err != nil {
 			return n.CloseConnections()
 		}
