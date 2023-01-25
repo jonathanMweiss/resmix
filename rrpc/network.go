@@ -49,6 +49,10 @@ type RelayGroup interface {
 	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
 }
 
+type ServerConn struct {
+	Stream Server_CallStreamServer
+}
+
 // Network contains any data used in the rrpc, along with Connections to the relays.
 type Network interface {
 	NetData
@@ -57,6 +61,8 @@ type Network interface {
 	CloseConnections() error
 
 	GetRelayGroup() RelayGroup
+
+	GetServerConn(hostname string) *ServerConn
 
 	PublishProof(*Proof)
 	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
@@ -87,10 +93,17 @@ type semiNet struct {
 
 	Tau int
 }
+
 type network struct {
 	NetData
-	skey  crypto.PrivateKey
-	conns map[string]*RelayConn
+	skey        crypto.PrivateKey
+	relayConns  map[string]*RelayConn
+	serverConns map[string]Server_CallStreamServer
+}
+
+func (n *network) GetServerConn(hostname string) *ServerConn {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (n *network) GetRelayGroup() RelayGroup {
@@ -98,13 +111,13 @@ func (n *network) GetRelayGroup() RelayGroup {
 }
 
 func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
-	if len(requests) != len(n.conns) {
+	if len(requests) != len(n.relayConns) {
 		return nil, fmt.Errorf("Bad request, number of requests differs from number of relays")
 	}
 	responseChan := make(chan relayResponse, len(requests))
 	srvrs := n.Servers()
 	for i := range requests {
-		v, ok := n.conns[srvrs[requests[i].Parcel.RelayIndex]]
+		v, ok := n.relayConns[srvrs[requests[i].Parcel.RelayIndex]]
 		if !ok {
 			panic("relay index not found")
 		}
@@ -145,33 +158,33 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 }
 
 func (n *network) CancelRequest(uuid string) {
-	for _, conn := range n.conns {
+	for _, conn := range n.relayConns {
 		conn.cancelRequest(uuid)
 	}
 }
 
 func (n *network) PublishProof(p *Proof) {
-	for _, conn := range n.conns {
+	for _, conn := range n.relayConns {
 		conn.SendProof(p)
 	}
 }
 
 func (n *network) GetRelayConn(hostname string) *RelayConn {
-	return n.conns[hostname]
+	return n.relayConns[hostname]
 }
 
 // NewNetwork creates a Network that is tied to a speicific node. cannot reuse for different nodes on same machine!
 func NewNetwork(netdata NetData, skey crypto.PrivateKey) Network {
 	return &network{
-		NetData: netdata,
-		skey:    skey,
-		conns:   make(map[string]*RelayConn, len(netdata.Servers())),
+		NetData:    netdata,
+		skey:       skey,
+		relayConns: make(map[string]*RelayConn, len(netdata.Servers())),
 	}
 }
 
 func (n *network) CloseConnections() error {
 	var err error
-	for _, conn := range n.conns {
+	for _, conn := range n.relayConns {
 		if err = conn.Close(); err != nil {
 			fmt.Println("error closing relay connection:", err)
 		}
@@ -187,7 +200,7 @@ func (n *network) Dial() error {
 			return n.CloseConnections()
 		}
 
-		n.conns[s] = conn
+		n.relayConns[s] = conn
 	}
 
 	return nil

@@ -48,10 +48,10 @@ func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 		// should the server pass everything to the network? don't think so.
 		// server received something, stores it into its attestor goroutine, then pushes it to the next one stream.
 		// how do i have connection to that?
-		// when i'll dial to the other server, and create my conns to push onto.
+		// when i'll dial to the other server, and create my relayConns to push onto.
 		// when receiving, its in the direction back on that stream.
 
-		// TODO: network holds connection back to relays? no. Network is used by the clients mainly for relay conns.
+		// TODO: network holds connection back to relays? no. Network is used by the clients mainly for relay relayConns.
 		// server has its own connection, and it dosn't share them with multiple clients on the same app.
 
 	}
