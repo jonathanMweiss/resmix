@@ -44,12 +44,19 @@ type NetData interface {
 	MinimalAttestationNumber() int
 }
 
+type RelayGroup interface {
+	CancelRequest(uuid string)
+	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
+}
+
 // Network contains any data used in the rrpc, along with Connections to the relays.
 type Network interface {
 	NetData
 
-	RelayDial() error
+	Dial() error
 	CloseConnections() error
+
+	GetRelayGroup() RelayGroup
 
 	PublishProof(*Proof)
 	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
@@ -84,6 +91,10 @@ type network struct {
 	NetData
 	skey  crypto.PrivateKey
 	conns map[string]*RelayConn
+}
+
+func (n *network) GetRelayGroup() RelayGroup {
+	return n
 }
 
 func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
@@ -169,7 +180,7 @@ func (n *network) CloseConnections() error {
 	return err
 }
 
-func (n *network) RelayDial() error {
+func (n *network) Dial() error {
 	for index, s := range n.NetData.Servers() {
 		conn, err := NewRelayConn(s, index)
 		if err != nil {

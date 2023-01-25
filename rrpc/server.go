@@ -3,6 +3,7 @@ package rrpc
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"runtime"
 	"sync"
@@ -207,8 +208,20 @@ func (s *Server) Attest(server Relay_AttestServer) error {
 }
 
 func (s *Server) SendProof(server Relay_SendProofServer) error {
-	//TODO implement me
-	panic("implement me")
+	// TODO need to receive some kind of Attestor that once started will look for specific uuids and their items!
+
+	server.Context() // todo something with context of client. like verify it is a known client
+	for {
+		r, err := server.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_ = r
+	}
+	//panic("implement me")
 }
 
 func (s *Server) signNote(note *ExchangeNote) error {

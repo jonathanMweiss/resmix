@@ -3,6 +3,7 @@ package rrpc
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const _serverport = "5005"
+const _serverport = "600"
 const _minimal_service_reply = "minimal service reply"
 
 var srvc Services = Services{
@@ -35,7 +36,7 @@ type clientTestSetup struct {
 }
 
 func (c *clientTestSetup) start(t *testing.T) {
-	require.NoError(t, c.network.RelayDial())
+	require.NoError(t, c.network.Dial())
 }
 
 func (c *clientTestSetup) releaseResources() {
@@ -46,48 +47,49 @@ func (c *clientTestSetup) releaseResources() {
 
 func newClientTestSetup(t *testing.T) clientTestSetup {
 	almostAddr := "localhost:" + _serverport
-	serverAddr := "localhost:" + _serverport + "1"
+	serverAddr := "localhost:" + _serverport + "10"
 
-	sk, pk, err := crypto.GenerateKeys()
-	require.NoError(t, err)
+	netconf := &NetworkConfig{
+		Tau:           2,
+		ServerConfigs: []ServerData{},
+	}
+	sks := []crypto.PrivateKey{}
+	for i := 1; i <= 3; i++ {
+		sk, pk, err := crypto.GenerateKeys()
+		require.NoError(t, err)
 
-	netdata := NewNetData(&NetworkConfig{
-		Tau: 2,
-		ServerConfigs: []ServerData{
-			{
-				Address:   almostAddr + "1",
-				Publickey: pk,
-			},
-			{
-				Address:   almostAddr + "2",
-				Publickey: pk,
-			},
-			{
-				Address:   almostAddr + "3",
-				Publickey: pk,
-			},
-		},
-	})
+		sks = append(sks, sk)
+		netconf.ServerConfigs = append(netconf.ServerConfigs, ServerData{
+			Address:   almostAddr + strconv.Itoa(i*10),
+			Publickey: pk,
+		})
+	}
+	netdata := NewNetData(netconf)
 
-	network := NewNetwork(netdata, sk)
+	network := NewNetwork(netdata, sks[0])
 
 	srvrs := make([]RrpcServer, 0, len(netdata.Servers()))
 
-	for _, s := range netdata.Servers() {
+	for i, s := range netdata.Servers() {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
 
-		srvr := NewServerService(sk, srvc, network)
+		srvr := NewServerService(sks[i], srvc, network)
 		srvrs = append(srvrs, srvr)
 
 		go func() {
 			require.NoError(t, srvr.Serve(l))
 		}()
 	}
+	go func() {
+		time.Sleep(time.Second)
+		net2 := NewNetwork(netdata, sks[1])
+		require.NoError(t, net2.Dial())
+	}()
 
 	return clientTestSetup{
 		network:    network,
-		sk:         sk,
+		sk:         sks[0],
 		serverAddr: serverAddr,
 		srvrs:      srvrs,
 	}

@@ -33,7 +33,7 @@ type relayConnRequest struct {
 }
 
 func NewRelayConn(address string, index int) (*RelayConn, error) {
-	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cc, err := grpc.Dial(address, grpc.WithBlock(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
@@ -162,11 +162,11 @@ func (r *RelayConn) parcelStream(stream Relay_RelayStreamClient) {
 		case rqst = <-r.requests:
 			err := stream.Send(rqst)
 			if err == io.EOF {
-				fmt.Printf("relay(%d) stream close\n", r.index)
+				fmt.Printf("relay(%d) parcel stream closeing\n", r.index)
 				return
 			}
 			if err != nil {
-				fmt.Printf("relay(%d) stream error: %v\n", r.index, err)
+				fmt.Printf("relay(%d) parcel stream error: %v\n", r.index, err)
 			}
 		}
 	}
@@ -185,12 +185,11 @@ func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 
 		out, err := stream.Recv()
 		if err == io.EOF {
-
 			return
 		}
 
 		if err != nil {
-			fmt.Printf("relay(%d) stream error: %v\n", r.index, err)
+			fmt.Printf("relay(%d) receive parcel stream error: %v\n", r.index, err)
 			continue
 		}
 

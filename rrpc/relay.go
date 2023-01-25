@@ -1,11 +1,7 @@
 package rrpc
 
 import (
-	"io"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // TODO: attestor, should have a priority queue of items to be ready to attest against.
@@ -25,13 +21,13 @@ func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 	// todo: verify this client hadn't already sent this parcel
 	server.Context()
 	for {
-		relayRequest, err := server.Recv()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return status.Error(codes.Internal, err.Error())
-		}
+		//relayRequest, err := server.Recv()
+		//if err == io.EOF {
+		//	return nil
+		//}
+		//if err != nil {
+		//	return status.Error(codes.Internal, err.Error())
+		//}
 
 		//s.relayTasks.Store(
 		//	relayRequest.Request.Parcel.Note.Calluuid,

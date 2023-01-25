@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -63,13 +64,17 @@ func (c *client) setServerStream() error {
 		defer c.wg.Done()
 		for {
 			msg, err := stream.Recv()
+			if err == io.EOF {
+				fmt.Println("client::streamSend closing: ")
+				return
+			}
 			if err != nil {
 				fmt.Println("client::streamSend error: ", err.Error())
 				return
 			}
 			if err := c.VerifyAndDispatch(msg); err != nil {
 				fmt.Println("client::streamSend:: dispatch error: ", err.Error())
-				return
+				continue
 			}
 
 			c.network.PublishProof(&Proof{
@@ -274,14 +279,13 @@ func (c *client) RobustCall(req *Request) error {
 		return err
 	}
 
-	//waitOns := make([]rqstWithErr[*RelayStreamResponse], len(robustCallRequests))
-	//for i, request := range robustCallRequests {
-	// TODO, no, all the relay conns should aanswer on the same channel that holds enough capacity for all of them.
-	// 	otherwise i'll get stuck waiting on one of them!
-	// 	so lets send all the requests at once, and return a channel for responses.
-	// BAD : waitOns[i] = c.network.RobustRequest(request, i)
+	out, err := c.network.GetRelayGroup().RobustRequest(req, robustCallRequests)
+	if err != nil {
+		return err
+	}
 
-	//}
+	// TODO: reconstruct!
+	c.reconstruct(out)
 	return nil
 }
 
@@ -327,4 +331,9 @@ func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
 	}
 
 	return relayRequests, nil
+}
+
+func (c *client) reconstruct(out []*CallStreamResponse) {
+	// TODO
+	panic("implement me")
 }
