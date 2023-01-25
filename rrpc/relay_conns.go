@@ -35,14 +35,14 @@ type relayConnRequest struct {
 }
 
 func NewRelayConn(address string, index int) (*RelayConn, error) {
-	cc, err := grpc.Dial(address, grpc.WithBlock(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
 
 	relayClient := NewRelayClient(cc)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 	r := &RelayConn{
 		ClientConn:  cc,
 		RelayClient: relayClient,

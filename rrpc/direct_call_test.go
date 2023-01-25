@@ -78,7 +78,9 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 		srvrs = append(srvrs, srvr)
 
 		go func() {
-			require.NoError(t, srvr.Serve(l))
+			if srvr.Serve(l) != nil {
+				panic("Server failed to serve")
+			}
 		}()
 	}
 

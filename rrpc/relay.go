@@ -1,6 +1,7 @@
 package rrpc
 
 import (
+	"io"
 	"time"
 )
 
@@ -21,10 +22,13 @@ func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 	// todo: verify this client hadn't already sent this parcel
 	server.Context()
 	for {
-		//relayRequest, err := server.Recv()
-		//if err == io.EOF {
-		//	return nil
-		//}
+
+		// TODO:
+		relayRequest, err := server.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		_ = relayRequest
 		//if err != nil {
 		//	return status.Error(codes.Internal, err.Error())
 		//}
