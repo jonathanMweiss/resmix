@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 	"sync"
 	"time"
@@ -64,8 +63,8 @@ func (c *client) setServerStream() error {
 		defer c.wg.Done()
 		for {
 			msg, err := stream.Recv()
-			if err == io.EOF {
-				fmt.Println("client::streamSend closing: ")
+			if isEOFFromServer(err) {
+				fmt.Println("client::streamSend closing")
 				return
 			}
 			if err != nil {
@@ -193,9 +192,9 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 	}
 
 	encoderDecoder, err := network.NewErrorCorrectionCode()
-	if err != nil {
-		panic(err)
-	}
+	//if err != nil {
+	//	panic(err)
+	//}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := client{

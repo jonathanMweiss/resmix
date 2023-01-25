@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 type RelayConn struct {
@@ -184,7 +186,7 @@ func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 		}
 
 		out, err := stream.Recv()
-		if err == io.EOF {
+		if isEOFFromServer(err) {
 			return
 		}
 
@@ -204,4 +206,18 @@ func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 
 		task.(relayConnRequest).response <- out
 	}
+}
+
+func isEOFFromServer(err error) bool {
+	if err == io.EOF {
+		return true
+	}
+
+	if err == io.ErrUnexpectedEOF {
+		return true
+	}
+	if st, ok := status.FromError(err); ok {
+		return st.Code() == codes.Unavailable
+	}
+	return false
 }

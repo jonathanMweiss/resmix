@@ -81,11 +81,6 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 			require.NoError(t, srvr.Serve(l))
 		}()
 	}
-	go func() {
-		time.Sleep(time.Second)
-		net2 := NewNetwork(netdata, sks[1])
-		require.NoError(t, net2.Dial())
-	}()
 
 	return clientTestSetup{
 		network:    network,
@@ -110,7 +105,8 @@ func TestDirectCall(t *testing.T) {
 		Uuid:    "1234",
 		Context: context.Background(),
 	}
-	require.NoError(t, c.DirectCall(req))
+	e := c.DirectCall(req)
+	require.NoError(t, e)
 	require.Equal(t, _minimal_service_reply, *(req.Reply.(*string)))
 	time.Sleep(time.Second)
 }
