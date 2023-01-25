@@ -5,7 +5,6 @@ import (
 	"net"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/stretchr/testify/require"
@@ -100,15 +99,18 @@ func TestDirectCall(t *testing.T) {
 
 	// Ensuring the network dials to all relays.
 	c := NewClient(setup.sk, setup.serverAddr, setup.network)
-	req := &Request{
-		Args:    nil,
-		Reply:   new(string),
-		Method:  "testService/testMethod",
-		Uuid:    "1234",
-		Context: context.Background(),
+	defer c.Close()
+	for i := 0; i < 10; i++ {
+		req := &Request{
+			Args:    nil,
+			Reply:   new(string),
+			Method:  "testService/testMethod",
+			Uuid:    "1234",
+			Context: context.Background(),
+		}
+		e := c.DirectCall(req)
+		require.NoError(t, e)
+		require.Equal(t, _minimal_service_reply, *(req.Reply.(*string)))
 	}
-	e := c.DirectCall(req)
-	require.NoError(t, e)
-	require.Equal(t, _minimal_service_reply, *(req.Reply.(*string)))
-	time.Sleep(time.Second)
+
 }
