@@ -49,10 +49,6 @@ type RelayGroup interface {
 	RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error)
 }
 
-type ServerConn struct {
-	Stream Server_CallStreamServer
-}
-
 // Network contains any data used in the rrpc, along with Connections to the relays.
 type Network interface {
 	NetData
@@ -98,12 +94,11 @@ type network struct {
 	NetData
 	skey        crypto.PrivateKey
 	relayConns  map[string]*RelayConn
-	serverConns map[string]Server_CallStreamServer
+	serverConns map[string]*ServerConn
 }
 
 func (n *network) GetServerConn(hostname string) *ServerConn {
-	//TODO implement me
-	panic("implement me")
+	return n.serverConns[hostname]
 }
 
 func (n *network) GetRelayGroup() RelayGroup {
@@ -176,9 +171,10 @@ func (n *network) GetRelayConn(hostname string) *RelayConn {
 // NewNetwork creates a Network that is tied to a speicific node. cannot reuse for different nodes on same machine!
 func NewNetwork(netdata NetData, skey crypto.PrivateKey) Network {
 	return &network{
-		NetData:    netdata,
-		skey:       skey,
-		relayConns: make(map[string]*RelayConn, len(netdata.Servers())),
+		NetData:     netdata,
+		skey:        skey,
+		relayConns:  make(map[string]*RelayConn, len(netdata.Servers())),
+		serverConns: make(map[string]*ServerConn, len(netdata.Servers())),
 	}
 }
 
@@ -190,17 +186,29 @@ func (n *network) CloseConnections() error {
 		}
 	}
 
+	for _, conn := range n.serverConns {
+		if err = conn.Close(); err != nil {
+			fmt.Println("error closing server connection:", err)
+		}
+	}
+
 	return err
 }
 
 func (n *network) Dial() error {
 	for index, s := range n.NetData.Servers() {
-		conn, err := NewRelayConn(s, index)
+		relayConn, err := NewRelayConn(s, index)
 		if err != nil {
 			return n.CloseConnections()
 		}
 
-		n.relayConns[s] = conn
+		n.relayConns[s] = relayConn
+
+		serverConn, err := newServerConn(s)
+		if err != nil {
+			return n.CloseConnections()
+		}
+		n.serverConns[s] = serverConn
 	}
 
 	return nil

@@ -221,3 +221,34 @@ func isEOFFromServer(err error) bool {
 	}
 	return false
 }
+
+type ServerConn struct {
+	clientConn ServerClient
+	context    context.Context
+	cancel     context.CancelFunc
+	cc         *grpc.ClientConn
+}
+
+func (c *ServerConn) Close() error {
+	c.cancel() // closing any running streams!
+	return c.cc.Close()
+}
+
+func newServerConn(address string) (*ServerConn, error) {
+	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	con := NewServerClient(cc)
+	return &ServerConn{
+		cc:         cc,
+		clientConn: con,
+		context:    ctx,
+		cancel:     cancel,
+	}, nil
+}
+
+func (c *ServerConn) NewCallStream() (Server_CallStreamClient, error) {
+	return c.clientConn.CallStream(c.context)
+}
