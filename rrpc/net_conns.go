@@ -42,7 +42,7 @@ func NewRelayConn(address string, index int) (*RelayConn, error) {
 
 	relayClient := NewRelayClient(cc)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &RelayConn{
 		ClientConn:  cc,
 		RelayClient: relayClient,
@@ -76,6 +76,8 @@ func NewRelayConn(address string, index int) (*RelayConn, error) {
 	go r.receiveParcels(relayStreamClient)
 
 	go func() {
+		defer r.WaitGroup.Done()
+
 		// todo find way to reuse code here...
 		cleanTime := time.NewTicker(time.Second * 5)
 
@@ -160,6 +162,9 @@ func (r *RelayConn) parcelStream(stream Relay_RelayStreamClient) {
 	for {
 		select {
 		case <-r.Context.Done():
+			if err := stream.CloseSend(); err != nil {
+				fmt.Println("closing stream failed:", err)
+			}
 			return
 		case rqst = <-r.requests:
 			err := stream.Send(rqst)
@@ -178,12 +183,6 @@ func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 	defer r.WaitGroup.Done()
 
 	for {
-
-		select {
-		case <-r.Context.Done():
-			return
-		default:
-		}
 
 		out, err := stream.Recv()
 		if isEOFFromServer(err) {
@@ -216,10 +215,14 @@ func isEOFFromServer(err error) bool {
 	if err == io.ErrUnexpectedEOF {
 		return true
 	}
-	if st, ok := status.FromError(err); ok {
-		return st.Code() == codes.Unavailable
+
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+
 	}
-	return false
+
+	return st.Code() == codes.Unavailable || st.Code() == codes.Canceled
 }
 
 type ServerConn struct {
@@ -277,6 +280,9 @@ func newServerConn(address string, output chan *CallStreamResponse) (*ServerConn
 		for {
 			select {
 			case <-ctx.Done():
+				if err := conn.stream.CloseSend(); err != nil {
+					fmt.Println("serverstream_send:: closing  failed:", err)
+				}
 				return
 			case tosend = <-conn.toSend:
 			}
@@ -311,8 +317,4 @@ func newServerConn(address string, output chan *CallStreamResponse) (*ServerConn
 	}()
 
 	return conn, nil
-}
-
-func (c *ServerConn) NewCallStream() (Server_CallStreamClient, error) {
-	return c.clientConn.CallStream(c.context)
 }

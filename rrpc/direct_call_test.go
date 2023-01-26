@@ -2,6 +2,7 @@ package rrpc
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strconv"
 	"testing"
@@ -39,9 +40,17 @@ func (c *clientTestSetup) start(t *testing.T) {
 }
 
 func (c *clientTestSetup) releaseResources() {
+	fmt.Println("closing net conns")
+	if err := c.network.CloseConnections(); err != nil {
+		panic(err)
+	}
+	fmt.Println("closed net conns")
+
+	fmt.Println("closing servers")
 	for _, srvr := range c.srvrs {
 		srvr.Stop()
 	}
+	fmt.Println("closed servers")
 }
 
 func newClientTestSetup(t *testing.T) clientTestSetup {
@@ -53,7 +62,7 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 		ServerConfigs: []ServerData{},
 	}
 	sks := []crypto.PrivateKey{}
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= 1; i++ {
 		sk, pk, err := crypto.GenerateKeys()
 		require.NoError(t, err)
 

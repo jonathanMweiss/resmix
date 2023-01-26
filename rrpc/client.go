@@ -49,11 +49,12 @@ type rqstWithErr[T interface{}] struct {
 
 func (c *client) Close() error {
 	c.CancelFunc()
+	close(c.verifier.done)
 	return nil
 }
 
 func (c *client) setServerStream() error {
-	stream, err := c.serverClient.DirectCall(AddIPToContext(context.Background(), c.myAddr))
+	stream, err := c.serverClient.DirectCall(AddIPToContext(c.Context, c.myAddr))
 	if err != nil {
 		return err
 	}
@@ -104,7 +105,9 @@ func (c *client) setServerStream() error {
 					task.Err <- err
 					return
 				}
+
 				if err := stream.Send(rqst); err != nil {
+					// This is a send task, no response just yet, because we should wait on response too
 					task.Err <- err
 					fmt.Println("streaming error: ", err.Error())
 					continue

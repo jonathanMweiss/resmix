@@ -187,11 +187,14 @@ func NewNetwork(netdata NetData, skey crypto.PrivateKey) ServerNetwork {
 		skey:        skey,
 		relayConns:  make(map[string]*RelayConn, len(netdata.Servers())),
 		serverConns: make(map[string]*ServerConn, len(netdata.Servers())),
+
+		callResponseChan: make(chan *CallStreamResponse, 100),
 	}
 }
 
 func (n *network) CloseConnections() error {
 	close(n.callResponseChan)
+
 	var err error
 	for _, conn := range n.relayConns {
 		if err = conn.Close(); err != nil {

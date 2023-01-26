@@ -28,6 +28,9 @@ func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 		if err == io.EOF {
 			return nil
 		}
+		if err != nil {
+			return err
+		}
 		_ = relayRequest
 		//if err != nil {
 		//	return status.Error(codes.Internal, err.Error())
