@@ -1,6 +1,7 @@
 package rrpc
 
 import (
+	"fmt"
 	"io"
 	"time"
 )
@@ -31,6 +32,7 @@ func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 		if err != nil {
 			return err
 		}
+		fmt.Print("lols")
 		_ = relayRequest
 		//if err != nil {
 		//	return status.Error(codes.Internal, err.Error())

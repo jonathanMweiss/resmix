@@ -62,7 +62,7 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 		ServerConfigs: []ServerData{},
 	}
 	sks := []crypto.PrivateKey{}
-	for i := 1; i <= 1; i++ {
+	for i := 1; i <= 3; i++ {
 		sk, pk, err := crypto.GenerateKeys()
 		require.NoError(t, err)
 

@@ -119,10 +119,12 @@ func (n *network) GetRelayGroup() RelayGroup {
 
 func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
 	if len(requests) != len(n.relayConns) {
-		return nil, fmt.Errorf("Bad request, number of requests differs from number of relays")
+		return nil, fmt.Errorf("bad request, number of requests differs from number of relays")
 	}
+
 	responseChan := make(chan relayResponse, len(requests))
 	srvrs := n.Servers()
+
 	for i := range requests {
 		v, ok := n.relayConns[srvrs[requests[i].Parcel.RelayIndex]]
 		if !ok {
@@ -137,15 +139,16 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 
 	responses := make([]*CallStreamResponse, 0, n.MinimalRelayedParcels())
 	totalErrors := 0
-	var r relayResponse
+
 	var err error
-	for range responses {
+
+	for r := range responseChan {
 
 		select {
 		case <-context.Done():
 			return nil, context.Err()
 
-		case r = <-responseChan:
+		default:
 		}
 
 		if r.RelayStreamError != nil {
@@ -157,10 +160,12 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 		}
 
 		responses = append(responses, r.Response)
+
 		if len(responses) >= n.MinimalRelayedParcels() {
 			return responses, nil
 		}
 	}
+
 	panic("should never arrive here")
 }
 

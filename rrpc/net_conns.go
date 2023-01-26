@@ -145,7 +145,7 @@ func (r *RelayConn) cancelRequest(uuid string) {
 }
 
 func (r *RelayConn) sendRequest(rqst relayConnRequest) {
-	r.liveTasks.Store(rqst.Parcel.Note.Calluuid, rqst.response)
+	r.liveTasks.Store(rqst.Parcel.Note.Calluuid, rqst)
 	select {
 	case <-r.Context.Done():
 		return
