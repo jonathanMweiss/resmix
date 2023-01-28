@@ -63,7 +63,7 @@ type Network interface {
 type ServerNetwork interface {
 	Network
 
-	AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest)
+	AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) error
 
 	// Incoming returns anything(!) even timeouts that came over the
 	// network, from any of the servers this network is listening on!
@@ -109,9 +109,19 @@ type network struct {
 	cancel context.CancelFunc
 }
 
-func (n *network) AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) {
-	//TODO implement me
-	panic("implement me")
+func (n *network) AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) error {
+	hostname := n.GetHostname(publickey)
+	if hostname == "" {
+		return status.Error(codes.NotFound, "public key not found")
+	}
+
+	conn, ok := n.serverConns[hostname]
+	if !ok {
+		return status.Error(codes.Internal, "no connection to server")
+	}
+
+	conn.send(msg)
+	return nil
 }
 
 func (n *network) Incoming() <-chan *CallStreamResponse {

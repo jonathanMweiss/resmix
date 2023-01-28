@@ -242,6 +242,13 @@ func (c *ServerConn) Close() error {
 	return c.cc.Close()
 }
 
+func (c *ServerConn) send(msg *CallStreamRequest) {
+	select {
+	case c.toSend <- msg:
+	case <-c.context.Done():
+	}
+}
+
 func newServerConn(ctx context.Context, address string, output chan *CallStreamResponse) (*ServerConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
