@@ -34,7 +34,7 @@ type relayConnRequest struct {
 	time.Time
 }
 
-func NewRelayConn(address string, index int) (*RelayConn, error) {
+func NewRelayConn(ctx context.Context, address string, index int) (*RelayConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func NewRelayConn(address string, index int) (*RelayConn, error) {
 
 	relayClient := NewRelayClient(cc)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	r := &RelayConn{
 		ClientConn:  cc,
 		RelayClient: relayClient,
@@ -191,7 +191,7 @@ func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 
 		if err != nil {
 			fmt.Printf("relay(%d) receive parcel stream error: %v\n", r.index, err)
-			continue
+			return
 		}
 
 		task, ok := r.liveTasks.LoadAndDelete(out.Uuid)
@@ -242,7 +242,7 @@ func (c *ServerConn) Close() error {
 	return c.cc.Close()
 }
 
-func newServerConn(address string, output chan *CallStreamResponse) (*ServerConn, error) {
+func newServerConn(ctx context.Context, address string, output chan *CallStreamResponse) (*ServerConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -250,9 +250,9 @@ func newServerConn(address string, output chan *CallStreamResponse) (*ServerConn
 
 	con := NewServerClient(cc)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	connctx, cancel := context.WithCancel(ctx)
 
-	stream, err := con.CallStream(ctx)
+	stream, err := con.CallStream(connctx)
 	if err != nil {
 		cancel()
 
@@ -263,7 +263,7 @@ func newServerConn(address string, output chan *CallStreamResponse) (*ServerConn
 		cc:         cc,
 		clientConn: con,
 		stream:     stream,
-		context:    ctx,
+		context:    connctx,
 		cancel:     cancel,
 
 		wg:         sync.WaitGroup{},
@@ -279,7 +279,7 @@ func newServerConn(address string, output chan *CallStreamResponse) (*ServerConn
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-connctx.Done():
 				if err := conn.stream.CloseSend(); err != nil {
 					fmt.Println("serverstream_send:: closing  failed:", err)
 				}

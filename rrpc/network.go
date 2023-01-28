@@ -63,7 +63,7 @@ type Network interface {
 type ServerNetwork interface {
 	Network
 
-	AsyncSend(address string, msg *CallStreamRequest)
+	AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest)
 
 	// Incoming returns anything(!) even timeouts that came over the
 	// network, from any of the servers this network is listening on!
@@ -102,9 +102,14 @@ type network struct {
 	serverConns map[string]*ServerConn
 
 	callResponseChan chan *CallStreamResponse
+
+	myAddress string
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
-func (n *network) AsyncSend(address string, msg *CallStreamRequest) {
+func (n *network) AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -187,11 +192,21 @@ func (n *network) GetRelayConn(hostname string) *RelayConn {
 
 // NewNetwork creates a Network that is tied to a speicific node. cannot reuse for different nodes on same machine!
 func NewNetwork(netdata NetData, skey crypto.PrivateKey) ServerNetwork {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	myAddress := netdata.GetHostname(skey.Public())
+	ctx = AddIPToContext(ctx, myAddress)
+
 	return &network{
 		NetData:     netdata,
 		skey:        skey,
 		relayConns:  make(map[string]*RelayConn, len(netdata.Servers())),
 		serverConns: make(map[string]*ServerConn, len(netdata.Servers())),
+
+		ctx:    ctx,
+		cancel: cancel,
+
+		myAddress: myAddress,
 
 		callResponseChan: make(chan *CallStreamResponse, 100),
 	}
@@ -199,6 +214,8 @@ func NewNetwork(netdata NetData, skey crypto.PrivateKey) ServerNetwork {
 
 func (n *network) CloseConnections() error {
 	close(n.callResponseChan)
+
+	n.cancel()
 
 	var err error
 	for _, conn := range n.relayConns {
@@ -218,14 +235,14 @@ func (n *network) CloseConnections() error {
 
 func (n *network) Dial() error {
 	for index, s := range n.NetData.Servers() {
-		relayConn, err := NewRelayConn(s, index)
+		relayConn, err := NewRelayConn(n.ctx, s, index)
 		if err != nil {
 			return n.CloseConnections()
 		}
 
 		n.relayConns[s] = relayConn
 
-		serverConn, err := newServerConn(s, n.callResponseChan)
+		serverConn, err := newServerConn(n.ctx, s, n.callResponseChan)
 		if err != nil {
 			return n.CloseConnections()
 		}

@@ -259,3 +259,7 @@ func (s *Server) signNote(note *ExchangeNote) error {
 		return <-resp
 	}
 }
+
+func (s *Server) logRequestAsReceived(request *RelayStreamRequest) {
+	// todo
+}
