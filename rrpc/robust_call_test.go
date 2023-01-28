@@ -15,7 +15,7 @@ func TestRobustCall(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the network dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.network)
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
 	req := &Request{
 		Args:    nil,
 		Reply:   new(string),

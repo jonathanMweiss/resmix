@@ -42,6 +42,8 @@ type NetData interface {
 
 	//the minimal value needed to generate a proof
 	MinimalAttestationNumber() int
+
+	GetRelayIndex(ip string) int
 }
 
 type RelayGroup interface {
@@ -93,6 +95,10 @@ type semiNet struct {
 	hostToPK map[string]crypto.PublicKey
 
 	Tau int
+}
+
+func (n *semiNet) GetRelayIndex(ip string) int {
+	return sort.SearchStrings(n.serverAddresses, ip) // like searching a tree...
 }
 
 type network struct {

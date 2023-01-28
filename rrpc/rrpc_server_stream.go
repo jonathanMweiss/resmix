@@ -11,17 +11,22 @@ import (
 
 // CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
 func (s *Server) CallStream(stream Server_CallStreamServer) error {
-	//TODO implement me
 	ip, err := GetPeerFromContext(stream.Context())
 	if err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::callStream: cannot get peer from context: %v", err)
 	}
 
-	relayPK, err := s.ServerNetwork.GetPublicKey(ip)
-	if err != nil {
+	// verify existence of the caller.
+	if _, err := s.ServerNetwork.GetPublicKey(ip); err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::callStream: unknown caller: %v", err)
 	}
-	_ = relayPK
+
+	relayIndex := s.ServerNetwork.GetRelayIndex(ip)
+
+	if err := s.relaystreams.addAt(relayIndex, stream); err != nil {
+		return err
+	}
+
 	for {
 		request, err := stream.Recv()
 		if err == io.EOF {
@@ -32,13 +37,11 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 			return err
 		}
 
-		if err := s.validateParcel(request.Parcel); err != nil {
-			s.streamBackResponse(
-				request.Parcel.RelayIndex,
+		if err := s.validateParcel(relayIndex, request.Parcel); err != nil {
+			s.relaystreams.sendTo(relayIndex,
 				&CallStreamResponse{
 					RpcError: status.Newf(codes.InvalidArgument, "server:"+err.Error()).Proto(),
-				},
-			)
+				})
 
 			continue
 		}
@@ -52,7 +55,11 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 	}
 }
 
-func (s *Server) validateParcel(parcel *Parcel) error {
+func (s *Server) validateParcel(index int, parcel *Parcel) error {
+	if int(parcel.RelayIndex) != index {
+		return status.Errorf(codes.InvalidArgument, "server: invalid relay index: %d", parcel.RelayIndex)
+	}
+
 	tmpCert := (*senderNote)(parcel.Note).popCert()
 	if err := s.verifier.Verify(parcel.Note.SenderID, parcel); err != nil {
 		return err
@@ -61,10 +68,6 @@ func (s *Server) validateParcel(parcel *Parcel) error {
 
 	// verify the note contains a valid signature too. Otherwise, you cannot fill it!
 	return s.verifier.Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
-}
-
-func (s *Server) streamBackResponse(relayIndex int32, resp *CallStreamResponse) {
-
 }
 
 type parcelCollection struct {
@@ -101,7 +104,7 @@ func (s *Server) collector() {
 			v, err := s.getOrCreateTask(tasks, task)
 
 			if err != nil {
-				s.streamBackResponse(task.RelayIndex, &CallStreamResponse{
+				s.relaystreams.sendTo(int(task.RelayIndex), &CallStreamResponse{
 					RpcError: status.Newf(codes.InvalidArgument, "server:"+err.Error()).Proto(),
 				})
 

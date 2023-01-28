@@ -29,25 +29,26 @@ var srvc Services = Services{
 }
 
 type clientTestSetup struct {
-	network    Network
 	sk         crypto.PrivateKey
 	serverAddr string
 	srvrs      []RrpcServer
+	networks   []Network
 }
 
 func (c *clientTestSetup) start(t *testing.T) {
-	require.NoError(t, c.network.Dial())
+	for _, n := range c.networks {
+		require.NoError(t, n.Dial())
+	}
 }
 
 func (c *clientTestSetup) releaseResources() {
-	fmt.Println("closing net conns")
-	if err := c.network.CloseConnections(); err != nil {
-		panic(err)
-	}
-	fmt.Println("closed net conns")
 
 	fmt.Println("closing servers")
-	for _, srvr := range c.srvrs {
+	for i, srvr := range c.srvrs {
+		if err := c.networks[i].CloseConnections(); err != nil {
+			panic(err)
+		}
+
 		srvr.Stop()
 	}
 	fmt.Println("closed servers")
@@ -74,13 +75,15 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 	}
 	netdata := NewNetData(netconf)
 
-	network := NewNetwork(netdata, sks[0])
-
+	networks := make([]Network, 0, len(netdata.Servers()))
 	srvrs := make([]RrpcServer, 0, len(netdata.Servers()))
 
 	for i, s := range netdata.Servers() {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
+
+		network := NewNetwork(netdata, sks[i])
+		networks = append(networks, network)
 
 		srvr, err := NewServerService(sks[i], srvc, network)
 		require.NoError(t, err)
@@ -95,7 +98,7 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 	}
 
 	return clientTestSetup{
-		network:    network,
+		networks:   networks,
 		sk:         sks[0],
 		serverAddr: serverAddr,
 		srvrs:      srvrs,
@@ -109,7 +112,7 @@ func TestDirectCall(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the network dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.network)
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 	for i := 0; i < 10; i++ {
 		req := &Request{

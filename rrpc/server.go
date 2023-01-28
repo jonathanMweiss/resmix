@@ -29,6 +29,11 @@ type server_signables struct {
 	signatureDone chan error
 }
 
+type srvrStreams struct {
+	mu      sync.Mutex
+	streams []Server_CallStreamServer
+}
+
 type Server struct {
 	Services
 	ServerNetwork
@@ -45,6 +50,8 @@ type Server struct {
 
 	responseChan   chan *CallStreamResponse
 	collectorTasks chan *Parcel
+
+	relaystreams srvrStreams
 }
 
 func (s *Server) Stop() {
@@ -81,6 +88,8 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 
 		responseChan:   make(chan *CallStreamResponse, 100),
 		collectorTasks: make(chan *Parcel, 1000),
+
+		relaystreams: newStreams(network),
 	}
 
 	RegisterServerServer(gsrvr, srvr)
@@ -95,6 +104,49 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 	go srvr.collector()
 
 	return srvr, nil
+}
+
+func newStreams(serverNetwork ServerNetwork) srvrStreams {
+	return srvrStreams{
+		mu:      sync.Mutex{},
+		streams: make([]Server_CallStreamServer, len(serverNetwork.Servers())),
+	}
+}
+
+func (s *srvrStreams) addAt(index int, stream Server_CallStreamServer) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.streams[index] != nil {
+		return status.Error(codes.AlreadyExists, "stream already exists")
+	}
+
+	s.streams[index] = stream
+	return nil
+}
+
+func (s *srvrStreams) get(index int) (Server_CallStreamServer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.streams[index] == nil {
+		return nil, status.Error(codes.NotFound, "stream not found")
+	}
+
+	return s.streams[index], nil
+}
+
+func (s *srvrStreams) sendTo(index int, resp *CallStreamResponse) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.streams[index] == nil {
+		return
+	}
+	panic("implement me")
+	// todo: send response on stream using channels?
+	if err := s.streams[index].Send(resp); err != nil {
+	}
 }
 
 func serverSigner(srvr *Server) {
