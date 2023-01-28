@@ -126,13 +126,14 @@ func (c *client) setServerStream() error {
 		for {
 			select {
 			case <-dropFromMap.C:
-				currentTime := time.Now()
+
 				c.waitingTasks.Range(func(key, value interface{}) bool {
 					rqst, ok := value.(*rqstWithErr[*Request]) // .Err <- fmt.Errorf("timeout"))
 					if !ok {
 						panic("client::VerifyAndDispatch: could not cast task!")
 					}
-					if currentTime.Sub(rqst.StartTime) > time.Second*5 {
+
+					if time.Since(rqst.StartTime) > time.Second*5 {
 						rqst.Err <- status.Error(codes.Canceled, "response timed out")
 						c.waitingTasks.Delete(key)
 					}

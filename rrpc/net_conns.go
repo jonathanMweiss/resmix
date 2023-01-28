@@ -86,9 +86,9 @@ func NewRelayConn(ctx context.Context, address string, index int) (*RelayConn, e
 			case <-r.Context.Done():
 				return
 			case <-cleanTime.C:
-				cur := time.Now()
+
 				r.liveTasks.Range(func(key, value interface{}) bool {
-					if cur.Sub(value.(relayConnRequest).Time) > time.Second*5 {
+					if time.Since(value.(relayConnRequest).Time) > time.Second*5 {
 						r.liveTasks.Delete(key)
 					}
 

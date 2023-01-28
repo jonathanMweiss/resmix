@@ -40,6 +40,9 @@ type Server struct {
 	Cancel context.CancelFunc
 	context.Context
 	gsrvr *grpc.Server
+
+	responseChan   chan *CallStreamResponse
+	collectorTasks chan *Parcel
 }
 
 func (s *Server) Stop() {
@@ -61,21 +64,26 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 		ServerNetwork: network,
 		verifier:      NewVerifier(runtime.NumCPU()),
 		signingQueue:  make(chan server_signables, 100),
-		Context:       cntx,
-		Cancel:        cancelf,
-		WaitGroup:     &sync.WaitGroup{},
 		skey:          skey,
+		WaitGroup:     &sync.WaitGroup{},
+		Cancel:        cancelf,
+		Context:       cntx,
 		gsrvr:         gsrvr,
+
+		responseChan:   make(chan *CallStreamResponse, 100),
+		collectorTasks: make(chan *Parcel, 1000),
 	}
 
 	RegisterServerServer(gsrvr, srvr)
 	RegisterRelayServer(gsrvr, srvr)
 
-	srvr.WaitGroup.Add(2)
+	srvr.WaitGroup.Add(3)
 
 	go serverSigner(srvr)
 
 	go relayStreamSetup(srvr)
+
+	go srvr.collector()
 
 	return srvr
 }
