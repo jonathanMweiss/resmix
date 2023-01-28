@@ -35,16 +35,13 @@ func relayStreamSetup(srvr *Server) {
 func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 	peer, err := GetPeerFromContext(server.Context())
 	if err != nil {
-		return err
-	}
+		return status.Error(codes.Unauthenticated, "server: cannot get peer from context")
 
-	if peer == "" {
-		return status.Error(codes.InvalidArgument, "Missing caller identity")
 	}
 
 	peerId, err := s.ServerNetwork.GetPublicKey(peer)
 	if err != nil {
-		return err
+		return status.Errorf(codes.Unauthenticated, "server: cannot get peer from context %v", err)
 	}
 
 	for {

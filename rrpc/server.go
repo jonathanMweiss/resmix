@@ -129,16 +129,12 @@ func createDecodeFunc(payload []byte) func(v interface{}) error {
 func (s *Server) DirectCall(server Server_DirectCallServer) error {
 	ip, err := GetPeerFromContext(server.Context())
 	if err != nil {
-		return status.Error(codes.InvalidArgument, "couldn't extract ip from incoming context: "+err.Error())
-	}
-
-	if len(ip) == 0 {
-		return status.Error(codes.InvalidArgument, "empty ip")
+		return status.Errorf(codes.Unauthenticated, "server::dirceCall: cannot get peer from context: %v", err)
 	}
 
 	clientPkey, err := s.ServerNetwork.GetPublicKey(ip)
 	if err != nil {
-		return status.Error(codes.InvalidArgument, "rrpc.network error in stream boot: "+err.Error())
+		return status.Errorf(codes.Unauthenticated, "server::dirceCall: unknown caller: %v", err)
 	}
 
 	for {

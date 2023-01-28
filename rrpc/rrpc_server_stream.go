@@ -12,6 +12,16 @@ import (
 // CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
 func (s *Server) CallStream(stream Server_CallStreamServer) error {
 	//TODO implement me
+	ip, err := GetPeerFromContext(stream.Context())
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "server::callStream: cannot get peer from context: %v", err)
+	}
+
+	relayPK, err := s.ServerNetwork.GetPublicKey(ip)
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "server::callStream: unknown caller: %v", err)
+	}
+	_ = relayPK
 	for {
 		request, err := stream.Recv()
 		if err == io.EOF {
@@ -53,7 +63,7 @@ func (s *Server) validateParcel(parcel *Parcel) error {
 	return s.verifier.Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
 }
 
-func (s *Server) streamBackResponse(int32, *CallStreamResponse) {
+func (s *Server) streamBackResponse(relayIndex int32, resp *CallStreamResponse) {
 
 }
 
