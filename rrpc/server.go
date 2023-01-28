@@ -10,6 +10,7 @@ import (
 
 	"github.com/jonathanMweiss/resmix/internal/codec"
 	"github.com/jonathanMweiss/resmix/internal/crypto"
+	"github.com/jonathanMweiss/resmix/internal/ecc"
 	"golang.org/x/net/context"
 	status2 "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
@@ -31,9 +32,10 @@ type server_signables struct {
 type Server struct {
 	Services
 	ServerNetwork
-	verifier     *MerkleCertVerifier
-	signingQueue chan server_signables
-	skey         crypto.PrivateKey
+	verifier       *MerkleCertVerifier
+	signingQueue   chan server_signables
+	skey           crypto.PrivateKey
+	decoderEncoder ecc.VerifyingEncoderDecoder
 
 	// closing the server fields:
 	*sync.WaitGroup
@@ -55,20 +57,27 @@ func (s *Server) Serve(lis net.Listener) error {
 	return s.gsrvr.Serve(lis)
 }
 
-func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork) RrpcServer {
+func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork) (RrpcServer, error) {
 	cntx, cancelf := context.WithCancel(context.Background())
 	gsrvr := grpc.NewServer()
 
+	decoderEncoder, err := network.NewErrorCorrectionCode()
+	if err != nil {
+		return nil, err
+	}
+
 	srvr := &Server{
-		Services:      s,
-		ServerNetwork: network,
-		verifier:      NewVerifier(runtime.NumCPU()),
-		signingQueue:  make(chan server_signables, 100),
-		skey:          skey,
-		WaitGroup:     &sync.WaitGroup{},
-		Cancel:        cancelf,
-		Context:       cntx,
-		gsrvr:         gsrvr,
+		Services:       s,
+		ServerNetwork:  network,
+		verifier:       NewVerifier(runtime.NumCPU()),
+		signingQueue:   make(chan server_signables, 100),
+		skey:           skey,
+		decoderEncoder: decoderEncoder,
+
+		WaitGroup: &sync.WaitGroup{},
+		Cancel:    cancelf,
+		Context:   cntx,
+		gsrvr:     gsrvr,
 
 		responseChan:   make(chan *CallStreamResponse, 100),
 		collectorTasks: make(chan *Parcel, 1000),
@@ -85,7 +94,7 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 
 	go srvr.collector()
 
-	return srvr
+	return srvr, nil
 }
 
 func serverSigner(srvr *Server) {

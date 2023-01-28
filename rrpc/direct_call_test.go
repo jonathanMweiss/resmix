@@ -82,7 +82,9 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
 
-		srvr := NewServerService(sks[i], srvc, network)
+		srvr, err := NewServerService(sks[i], srvc, network)
+		require.NoError(t, err)
+
 		srvrs = append(srvrs, srvr)
 
 		go func() {

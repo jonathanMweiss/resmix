@@ -1,7 +1,7 @@
 package rrpc
 
 import (
-	"fmt"
+	"encoding/binary"
 	"io"
 	"time"
 
@@ -23,9 +23,13 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 		}
 
 		if err := s.validateParcel(request.Parcel); err != nil {
-			s.streamBackResponse(&CallStreamResponse{
-				RpcError: status.Newf(codes.InvalidArgument, "server:"+err.Error()).Proto(),
-			})
+			s.streamBackResponse(
+				request.Parcel.RelayIndex,
+				&CallStreamResponse{
+					RpcError: status.Newf(codes.InvalidArgument, "server:"+err.Error()).Proto(),
+				},
+			)
+
 			continue
 		}
 
@@ -49,7 +53,7 @@ func (s *Server) validateParcel(parcel *Parcel) error {
 	return s.verifier.Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
 }
 
-func (s *Server) streamBackResponse(*CallStreamResponse) {
+func (s *Server) streamBackResponse(int32, *CallStreamResponse) {
 
 }
 
@@ -57,6 +61,8 @@ type parcelCollection struct {
 	parcels   []*Parcel
 	savedNote *ExchangeNote
 	startTime time.Time
+	service   *ServiceDesc
+	method    *MethodDesc
 }
 
 // collector reduces the incoming parcels into a task.
@@ -67,7 +73,8 @@ func (s *Server) collector() {
 	ttl := time.Second * 5
 	timeToLiveTicker := time.NewTicker(ttl)
 
-	tasks := map[string]parcelCollection{}
+	tasks := map[string]*parcelCollection{}
+
 	for {
 		select {
 		case <-timeToLiveTicker.C:
@@ -76,32 +83,104 @@ func (s *Server) collector() {
 					delete(tasks, k)
 				}
 			}
+
 		case <-s.Context.Done():
 			return
+
 		case task := <-s.collectorTasks:
-			fmt.Println("Collected")
-			_ = task
-			//j, err := s.getOrCreateJob(task.newRequest.Parcel)
-			//if err != nil {
-			//	s.sendError(status.Newf(codes.Internal, err.Error()), task.newRequest, task.sendingRelay)
-			//	continue
-			//}
-			//
-			//j.call.parcels = append(j.call.parcels, task.newRequest.Parcel)
-			//if len(j.call.parcels) < s.seminet.MinimalRelayedParcels() {
-			//	continue
-			//}
-			//
-			//delete(s.jobs, j.callId)
-			//
-			//// run the job on a different goroutine.
-			//go func() {
-			//	response := s.runClientJob(j)
-			//	for _, streamTask := range response {
-			//		s.signAndStreamTasks <- streamTask
-			//	}
-			//	j.call.parcels = nil
-			//}()
+			v, err := s.getOrCreateTask(tasks, task)
+
+			if err != nil {
+				s.streamBackResponse(task.RelayIndex, &CallStreamResponse{
+					RpcError: status.Newf(codes.InvalidArgument, "server:"+err.Error()).Proto(),
+				})
+
+				continue
+			}
+
+			v.parcels = append(v.parcels, task)
+			if len(v.parcels) < s.ServerNetwork.MinimalRelayedParcels() {
+				continue
+			}
+
+			delete(tasks, v.savedNote.Calluuid)
+
+			// todo: consider using a thread pool...
+			go func() {
+				response := s.runTask(v)
+				_ = response
+
+				//for _, streamTask := range response {
+				//	s.signAndStreamTasks <- streamTask
+				//}
+			}()
+
 		}
 	}
+}
+
+func (s *Server) getOrCreateTask(tasks map[string]*parcelCollection, parcel *Parcel) (*parcelCollection, error) {
+	service, methodDesc, err := s.getServiceAndMethodDesc(parcel.Method)
+	if err != nil {
+		return nil, err
+	}
+
+	v, ok := tasks[parcel.Note.Calluuid]
+	if !ok {
+		v = &parcelCollection{
+			parcels:   make([]*Parcel, 0, s.ServerNetwork.MinimalRelayedParcels()),
+			savedNote: parcel.Note,
+			startTime: time.Now(),
+			service:   service,
+			method:    methodDesc,
+		}
+
+		tasks[parcel.Note.Calluuid] = v
+	}
+
+	return v, nil
+}
+
+func (s *Server) runTask(v *parcelCollection) []*CallStreamResponse {
+	payload, err := s.reconstructParcels(v)
+	if err != nil {
+		return nil // s.prepareErrorResponse(j, err)
+	}
+
+	_ = payload
+	//
+	//handlerResponse, err := j.call.methodHandler(j.call.service.server, ctx, createDecodeFunc(payload))
+	//if err != nil {
+	//	return s.prepareErrorResponse(j, err)
+	//}
+	//
+	//responses, err := s.prepareCallResponse(handlerResponse, j)
+	//if err != nil {
+	//	return s.prepareErrorResponse(j, err)
+	//}
+
+	return nil
+}
+
+func (s *Server) reconstructParcels(v *parcelCollection) (interface{}, error) {
+	if len(v.parcels) == 0 {
+		return nil, status.Error(codes.Internal, "reached reconstruction with 0 parcels")
+	}
+
+	msgSize := binary.LittleEndian.Uint32(v.parcels[0].MessageLength)
+
+	shards := s.decoderEncoder.NewShards()
+
+	for i := 0; i < len(v.parcels); i++ {
+		(*eccClientParcel)(v.parcels[i]).PutIntoShards(shards)
+
+		v.parcels[i] = nil
+	}
+
+	data, err := s.decoderEncoder.AuthReconstruct(shards, int(msgSize))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "server reconstruction failure: %v", err)
+	}
+
+	return data, nil
 }

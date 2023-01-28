@@ -267,6 +267,7 @@ func (n *semiNet) Servers() []string {
 }
 
 func (n *semiNet) NewErrorCorrectionCode() (ecc.VerifyingEncoderDecoder, error) {
+	// todo: consider reusing the same encoder/decoder for all requests...
 	maxErasures := n.MaxErrors()
 	numDataShards := n.NumServers() - maxErasures
 	return ecc.NewRSEncoderDecoder(numDataShards, maxErasures)
