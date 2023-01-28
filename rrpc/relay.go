@@ -20,6 +20,18 @@ type timedParcel struct {
 	requester []byte
 }
 
+func relayStreamSetup(srvr *Server) {
+	defer srvr.WaitGroup.Done()
+
+	// TODO: map uuid to client name.
+	// TODO: map client name to stream object.
+
+	incomingChan := srvr.ServerNetwork.Incoming()
+	_ = incomingChan
+
+	// create someone that waits on all channel of anything that comes back from the network ...
+}
+
 func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 	peer, err := GetPeerFromContext(server.Context())
 	if err != nil {
@@ -63,4 +75,8 @@ func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 func isValidRequest(id crypto.PublicKey, request *RelayStreamRequest) bool {
 	return true // todo.
 
+}
+
+func (s *Server) logRequestAsReceived(request *RelayStreamRequest) {
+	// todo
 }

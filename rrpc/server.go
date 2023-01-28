@@ -80,15 +80,6 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 	return srvr
 }
 
-func relayStreamSetup(srvr *Server) {
-	defer srvr.WaitGroup.Done()
-
-	incomingChan := srvr.ServerNetwork.Incoming()
-	_ = incomingChan
-
-	// create someone that waits on all channel of anything that comes back from the network ...
-}
-
 func serverSigner(srvr *Server) {
 	func() {
 		defer srvr.WaitGroup.Done()
@@ -109,23 +100,6 @@ func serverSigner(srvr *Server) {
 func (s *Server) Close() {
 	s.Cancel()
 	s.WaitGroup.Wait()
-}
-
-// CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
-func (s *Server) CallStream(server Server_CallStreamServer) error {
-	//TODO implement me
-	for {
-		req, err := server.Recv()
-		if err == io.EOF {
-			return nil
-		}
-
-		if err != nil {
-			return err
-		}
-		// TODO
-		_ = req
-	}
 }
 
 func createDecodeFunc(payload []byte) func(v interface{}) error {
@@ -258,8 +232,4 @@ func (s *Server) signNote(note *ExchangeNote) error {
 	}:
 		return <-resp
 	}
-}
-
-func (s *Server) logRequestAsReceived(request *RelayStreamRequest) {
-	// todo
 }

@@ -270,13 +270,14 @@ func (c *client) RobustCall(req *Request) error {
 	}
 
 	// sign them
-	signables := make([]MerkleCertifiable, 0, len(robustCallRequests))
+	signables := make([]MerkleCertifiable, 0, 2*len(robustCallRequests))
 	for i := range robustCallRequests {
 		signables = append(signables, robustCallRequests[i])
 	}
+	for i := range robustCallRequests {
+		signables = append(signables, (*senderNote)(robustCallRequests[i].Parcel.Note))
+	}
 
-	bf := c.bufferpool.Get().(*bytes.Buffer)
-	defer c.bufferpool.Put(bf)
 	if err := merkleSign(signables, c.secretKey); err != nil {
 		return err
 	}
