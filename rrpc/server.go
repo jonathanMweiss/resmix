@@ -251,6 +251,35 @@ func (s *Server) signNote(note *ExchangeNote) error {
 	}
 }
 
+func (s *Server) broadcastError(v *rrpcTask, err error) {
+
+}
+
+func (s *Server) erroToCallStreamResponseArray(v *rrpcTask, err error) []*CallStreamResponse {
+	st, ok := status.FromError(err)
+	if !ok {
+		st = status.New(codes.Unknown, err.Error())
+	}
+	statusErrorProto := st.Proto()
+
+	sresponse := make([]*CallStreamResponse, len(s.ServerNetwork.Servers()))
+	for i := range s.ServerNetwork.Servers() {
+		sresponse[i] = &CallStreamResponse{
+			RpcError:  statusErrorProto,
+			PublicKey: s.skey.Public(),
+			Note: &ExchangeNote{
+				SenderID:            v.savedNote.SenderID,
+				ReceiverID:          v.savedNote.ReceiverID,
+				SenderMerkleProof:   v.savedNote.SenderMerkleProof,
+				ReceiverMerkleProof: nil,
+				Calluuid:            v.savedNote.Calluuid,
+			},
+		}
+	}
+
+	return sresponse
+}
+
 func (s *srvrStreams) removeAt(index int) {
 	close(s.chans[index])
 }

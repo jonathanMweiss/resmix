@@ -1,7 +1,10 @@
 package rrpc
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
+	"github.com/jonathanMweiss/resmix/internal/codec"
 	"io"
 	"time"
 
@@ -99,7 +102,7 @@ func (s *Server) validateParcel(index int, parcel *Parcel) error {
 	return s.verifier.Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
 }
 
-type parcelCollection struct {
+type rrpcTask struct {
 	parcels   []*Parcel
 	savedNote *ExchangeNote
 	startTime time.Time
@@ -115,7 +118,7 @@ func (s *Server) collector() {
 	ttl := time.Second * 5
 	timeToLiveTicker := time.NewTicker(ttl)
 
-	tasks := map[string]*parcelCollection{}
+	tasks := map[string]*rrpcTask{}
 
 	for {
 		select {
@@ -149,19 +152,28 @@ func (s *Server) collector() {
 
 			// todo: consider using a thread pool...
 			go func() {
-				response := s.runTask(v)
-				_ = response
+				resps := s.runTask(v)
+				signables := make([]MerkleCertifiable, len(resps))
 
-				//for _, streamTask := range response {
-				//	s.signAndStreamTasks <- streamTask
-				//}
+				for i, resp := range resps {
+					signables[i] = resp
+				}
+
+				if err := merkleSign(signables, s.skey); err != nil {
+					fmt.Println("server: couldn't sign rrpc response", err)
+					return
+				}
+
+				for i, resp := range resps {
+					s.relaystreams.sendTo(i, resp)
+				}
 			}()
 
 		}
 	}
 }
 
-func (s *Server) getOrCreateTask(tasks map[string]*parcelCollection, parcel *Parcel) (*parcelCollection, error) {
+func (s *Server) getOrCreateTask(tasks map[string]*rrpcTask, parcel *Parcel) (*rrpcTask, error) {
 	service, methodDesc, err := s.getServiceAndMethodDesc(parcel.Method)
 	if err != nil {
 		return nil, err
@@ -169,7 +181,7 @@ func (s *Server) getOrCreateTask(tasks map[string]*parcelCollection, parcel *Par
 
 	v, ok := tasks[parcel.Note.Calluuid]
 	if !ok {
-		v = &parcelCollection{
+		v = &rrpcTask{
 			parcels:   make([]*Parcel, 0, s.ServerNetwork.MinimalRelayedParcels()),
 			savedNote: parcel.Note,
 			startTime: time.Now(),
@@ -183,28 +195,26 @@ func (s *Server) getOrCreateTask(tasks map[string]*parcelCollection, parcel *Par
 	return v, nil
 }
 
-func (s *Server) runTask(v *parcelCollection) []*CallStreamResponse {
+func (s *Server) runTask(v *rrpcTask) []*CallStreamResponse {
 	payload, err := s.reconstructParcels(v)
 	if err != nil {
-		return nil // s.prepareErrorResponse(j, err)
+		return s.erroToCallStreamResponseArray(v, err)
 	}
 
-	_ = payload
-	//
-	//handlerResponse, err := j.call.methodHandler(j.call.service.server, ctx, createDecodeFunc(payload))
-	//if err != nil {
-	//	return s.prepareErrorResponse(j, err)
-	//}
-	//
-	//responses, err := s.prepareCallResponse(handlerResponse, j)
-	//if err != nil {
-	//	return s.prepareErrorResponse(j, err)
-	//}
+	resp, err := v.method.Handler(v.service.server, s.Context, createDecodeFunc(payload))
+	if err != nil {
+		return s.erroToCallStreamResponseArray(v, err)
+	}
 
-	return nil
+	resps, err := s.prepareCallResponse(resp, v)
+	if err != nil {
+		return s.erroToCallStreamResponseArray(v, err)
+	}
+
+	return resps
 }
 
-func (s *Server) reconstructParcels(v *parcelCollection) (interface{}, error) {
+func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 	if len(v.parcels) == 0 {
 		return nil, status.Error(codes.Internal, "reached reconstruction with 0 parcels")
 	}
@@ -225,4 +235,37 @@ func (s *Server) reconstructParcels(v *parcelCollection) (interface{}, error) {
 	}
 
 	return data, nil
+}
+
+func (s *Server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*CallStreamResponse, error) {
+	// todo: pool buffers..
+	bf := bytes.NewBuffer(make([]byte, 0, 1024))
+	if err := codec.MarshalIntoWriter(response, bf); err != nil {
+		return nil, err
+	}
+
+	msgLength := make([]byte, 4)
+	binary.LittleEndian.PutUint32(msgLength, uint32(len(bf.Bytes())))
+
+	chunks, err := s.decoderEncoder.AuthEncode(bf.Bytes())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failure in encoding serverside, %v:", err)
+	}
+
+	toRelayBack := make([]*CallStreamResponse, len(s.ServerNetwork.Servers()))
+	for i := range s.ServerNetwork.Servers() {
+		srsp := &CallStreamResponse{
+			Response: &RrpcResponse{
+				MessageLength: msgLength,
+				RelayIndex:    int32(i),
+			},
+			PublicKey: s.skey.Public(),
+			Note:      v.savedNote,
+		}
+
+		(*eccServerParcel)(srsp.Response).InsertECCPayload(chunks, i)
+		toRelayBack[i] = srsp
+	}
+
+	return toRelayBack, nil
 }

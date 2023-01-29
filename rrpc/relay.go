@@ -1,6 +1,7 @@
 package rrpc
 
 import (
+	"fmt"
 	"io"
 	"time"
 
@@ -28,6 +29,7 @@ func relayStreamSetup(srvr *Server) {
 
 	incomingChan := srvr.ServerNetwork.Incoming()
 	for callStreamResponse := range incomingChan {
+		fmt.Println("got a call stream response")
 		// todo: check if i know this request.
 		// attempt to restore request to the original requester (push the result onto `server Relay_RelayStreamServer`)
 		_ = callStreamResponse

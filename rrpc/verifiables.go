@@ -138,30 +138,30 @@ func (r *RelayRequest) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
 	return crypto.Message, w.Bytes()[start:]
 }
 
-//type serverResp pb.CallStreamResponse
+//type serverResp CallStreamResponse
 
-//func (r *serverResp) SetMerkleCert(root crypto.Digest, proof []crypto.Digest, leafIndex int, signature []byte) {
-//	r.Merkle = &pb.MerkleCertificate{
-//		Root:      root[:],
-//		Path:      proofIntoBytes(proof),
-//		Index:     uint64(leafIndex),
-//		Signature: signature,
-//	}
-//}
-//
-//func (s *serverResp) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
-//	return prepareForHashing(s, w)
-//}
-//
-//func (s *serverResp) popCert() *pb.MerkleCertificate {
-//	cert := s.Merkle
-//	s.Merkle = nil
-//	return cert
-//}
-//
-//func (s *serverResp) pushCert(cert *pb.MerkleCertificate) {
-//	s.Merkle = cert
-//}
+func (s *CallStreamResponse) SetMerkleCert(root crypto.Digest, proof []crypto.Digest, leafIndex int, signature []byte) {
+	s.Note.ReceiverMerkleProof = &MerkleCertificate{
+		Root:      root[:],
+		Path:      proofIntoBytes(proof),
+		Index:     uint64(leafIndex),
+		Signature: signature,
+	}
+}
+
+func (s *CallStreamResponse) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
+	return prepareForHashing(s, w)
+}
+
+func (s *CallStreamResponse) popCert() *MerkleCertificate {
+	cert := s.Note.ReceiverMerkleProof
+	s.Note.ReceiverMerkleProof = nil
+	return cert
+}
+
+func (s *CallStreamResponse) pushCert(cert *MerkleCertificate) {
+	s.Note.ReceiverMerkleProof = cert
+}
 
 // ====
 // fast requests
