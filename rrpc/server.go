@@ -90,32 +90,13 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 	RegisterServerServer(gsrvr, srvr)
 	RegisterRelayServer(gsrvr, srvr)
 
-	srvr.WaitGroup.Add(3)
-
-	go serverSigner(srvr)
+	srvr.WaitGroup.Add(2)
 
 	go relayStreamSetup(srvr)
 
 	go srvr.collector()
 
 	return srvr, nil
-}
-
-func serverSigner(srvr *Server) {
-	func() {
-		defer srvr.WaitGroup.Done()
-
-		for {
-			select {
-			case <-srvr.Context.Done():
-				return
-			case signTask := <-srvr.signingQueue:
-				// TODO: batch more than one.
-				signTask.signatureDone <- merkleSign([]MerkleCertifiable{signTask}, srvr.skey)
-				close(signTask.signatureDone)
-			}
-		}
-	}()
 }
 
 func (s *Server) Close() {
@@ -174,7 +155,7 @@ func (s *Server) DirectCall(server Server_DirectCallServer) error {
 			return status.Error(codes.Internal, err.Error())
 		}
 
-		if err := s.signNote(request.Note); err != nil {
+		if err := merkleSign([]MerkleCertifiable{(*receiverNote)(request.Note)}, s.skey); err != nil {
 			fmt.Println("couldn't sign the note. exiting stream:", err.Error())
 			return status.Error(codes.Internal, err.Error())
 		}
@@ -235,51 +216,4 @@ func (s *Server) SendProof(server Relay_SendProofServer) error {
 		_ = r
 	}
 	//panic("implement me")
-}
-
-func (s *Server) signNote(note *ExchangeNote) error {
-	resp := make(chan error)
-
-	select {
-	case <-s.Context.Done():
-		return s.Context.Err()
-	case s.signingQueue <- server_signables{
-		MerkleCertifiable: (*receiverNote)(note),
-		signatureDone:     resp,
-	}:
-		return <-resp
-	}
-}
-
-func (s *Server) broadcastError(v *rrpcTask, err error) {
-
-}
-
-func (s *Server) erroToCallStreamResponseArray(v *rrpcTask, err error) []*CallStreamResponse {
-	st, ok := status.FromError(err)
-	if !ok {
-		st = status.New(codes.Unknown, err.Error())
-	}
-	statusErrorProto := st.Proto()
-
-	sresponse := make([]*CallStreamResponse, len(s.ServerNetwork.Servers()))
-	for i := range s.ServerNetwork.Servers() {
-		sresponse[i] = &CallStreamResponse{
-			RpcError:  statusErrorProto,
-			PublicKey: s.skey.Public(),
-			Note: &ExchangeNote{
-				SenderID:            v.savedNote.SenderID,
-				ReceiverID:          v.savedNote.ReceiverID,
-				SenderMerkleProof:   v.savedNote.SenderMerkleProof,
-				ReceiverMerkleProof: nil,
-				Calluuid:            v.savedNote.Calluuid,
-			},
-		}
-	}
-
-	return sresponse
-}
-
-func (s *srvrStreams) removeAt(index int) {
-	close(s.chans[index])
 }

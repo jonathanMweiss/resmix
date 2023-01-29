@@ -35,6 +35,10 @@ func (s *srvrStreams) getChan(index int) <-chan *CallStreamResponse {
 	return s.chans[index]
 }
 
+func (s *srvrStreams) removeAt(index int) {
+	close(s.chans[index])
+}
+
 // CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
 func (s *Server) CallStream(stream Server_CallStreamServer) error {
 	peerIp, err := GetPeerFromContext(stream.Context())
@@ -268,4 +272,29 @@ func (s *Server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*Call
 	}
 
 	return toRelayBack, nil
+}
+
+func (s *Server) erroToCallStreamResponseArray(v *rrpcTask, err error) []*CallStreamResponse {
+	st, ok := status.FromError(err)
+	if !ok {
+		st = status.New(codes.Unknown, err.Error())
+	}
+	statusErrorProto := st.Proto()
+
+	sresponse := make([]*CallStreamResponse, len(s.ServerNetwork.Servers()))
+	for i := range s.ServerNetwork.Servers() {
+		sresponse[i] = &CallStreamResponse{
+			RpcError:  statusErrorProto,
+			PublicKey: s.skey.Public(),
+			Note: &ExchangeNote{
+				SenderID:            v.savedNote.SenderID,
+				ReceiverID:          v.savedNote.ReceiverID,
+				SenderMerkleProof:   v.savedNote.SenderMerkleProof,
+				ReceiverMerkleProof: nil,
+				Calluuid:            v.savedNote.Calluuid,
+			},
+		}
+	}
+
+	return sresponse
 }
