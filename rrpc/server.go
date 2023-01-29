@@ -23,27 +23,22 @@ type RrpcServer interface {
 	Serve(lis net.Listener) error
 	Stop()
 }
-type server_signables struct {
-	MerkleCertifiable
-	signatureDone chan error
-}
 
 type Server struct {
 	Services
 	ServerNetwork
-	verifier       *MerkleCertVerifier
-	signingQueue   chan server_signables
+	verifier *MerkleCertVerifier
+
 	skey           crypto.PrivateKey
 	decoderEncoder ecc.VerifyingEncoderDecoder
 
+	collectorTasks chan *Parcel
+
 	// closing the server fields:
 	*sync.WaitGroup
-	Cancel context.CancelFunc
+	context.CancelFunc
 	context.Context
 	gsrvr *grpc.Server
-
-	responseChan   chan *CallStreamResponse
-	collectorTasks chan *Parcel
 
 	streamsBack srvrStreams
 
@@ -54,7 +49,7 @@ type Server struct {
 
 func (s *Server) Stop() {
 	s.gsrvr.Stop()
-	s.Cancel()
+	s.CancelFunc()
 	s.WaitGroup.Wait()
 }
 
@@ -72,43 +67,34 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 	}
 
 	srvr := &Server{
-		Services:       s,
-		ServerNetwork:  network,
-		verifier:       NewVerifier(runtime.NumCPU()),
-		signingQueue:   make(chan server_signables, 100),
+		Services:      s,
+		ServerNetwork: network,
+		verifier:      NewVerifier(runtime.NumCPU()),
+
 		skey:           skey,
 		decoderEncoder: decoderEncoder,
 
-		WaitGroup: &sync.WaitGroup{},
-		Cancel:    cancelf,
-		Context:   cntx,
-		gsrvr:     gsrvr,
+		WaitGroup:  &sync.WaitGroup{},
+		CancelFunc: cancelf,
+		Context:    cntx,
+		gsrvr:      gsrvr,
 
-		responseChan:   make(chan *CallStreamResponse, 100),
 		collectorTasks: make(chan *Parcel, 1000),
 
 		streamsBack: newStreams(network),
 
 		bufferPool: sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1024)) }},
 	}
-
 	srvr.PrepareRelayService()
 
-	RegisterServerServer(gsrvr, srvr)
-	RegisterRelayServer(gsrvr, srvr.relay)
+	srvr.RegIntoGrpc()
 
-	srvr.WaitGroup.Add(2)
+	srvr.relay.relayStreamSetup()
 
-	go relayStreamSetup(srvr.relay)
-
+	srvr.WaitGroup.Add(1)
 	go srvr.collector()
 
 	return srvr, nil
-}
-
-func (s *Server) Close() {
-	s.Cancel()
-	s.WaitGroup.Wait()
 }
 
 func createDecodeFunc(payload []byte) func(v interface{}) error {
@@ -208,4 +194,9 @@ func (s *Server) PrepareRelayService() {
 		Context:       s.Context,
 		ServerNetwork: s.ServerNetwork,
 	}
+}
+
+func (s *Server) RegIntoGrpc() {
+	RegisterServerServer(s.gsrvr, s)
+	RegisterRelayServer(s.gsrvr, s.relay)
 }

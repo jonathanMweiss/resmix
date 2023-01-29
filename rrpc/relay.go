@@ -42,22 +42,26 @@ func (s *relay) Attest(server Relay_AttestServer) error {
 	panic("implement me")
 }
 
-func relayStreamSetup(srvr *relay) {
-	defer srvr.WaitGroup.Done()
+func (srvr *relay) relayStreamSetup() {
+	srvr.WaitGroup.Add(1)
 
-	incomingChan := srvr.ServerNetwork.Incoming()
-	for {
-		select {
-		case <-srvr.Context.Done():
-			return
+	go func() {
+		defer srvr.WaitGroup.Done()
 
-		case c, ok := <-incomingChan:
-			if !ok {
+		incomingChan := srvr.ServerNetwork.Incoming()
+		for {
+			select {
+			case <-srvr.Context.Done():
 				return
+
+			case c, ok := <-incomingChan:
+				if !ok {
+					return
+				}
+				fmt.Println("got a call stream response", c.String())
 			}
-			fmt.Println("got a call stream response", c.String())
 		}
-	}
+	}()
 }
 
 func (s *relay) RelayStream(server Relay_RelayStreamServer) error {
