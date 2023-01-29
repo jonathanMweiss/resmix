@@ -3,7 +3,6 @@ package rrpc
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"net"
 	"runtime"
 	"sync"
@@ -46,9 +45,11 @@ type Server struct {
 	responseChan   chan *CallStreamResponse
 	collectorTasks chan *Parcel
 
-	relaystreams srvrStreams
+	streamsBack srvrStreams
 
 	bufferPool sync.Pool
+
+	*relay
 }
 
 func (s *Server) Stop() {
@@ -86,17 +87,19 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 		responseChan:   make(chan *CallStreamResponse, 100),
 		collectorTasks: make(chan *Parcel, 1000),
 
-		relaystreams: newStreams(network),
+		streamsBack: newStreams(network),
 
 		bufferPool: sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1024)) }},
 	}
 
+	srvr.PrepareRelayService()
+
 	RegisterServerServer(gsrvr, srvr)
-	RegisterRelayServer(gsrvr, srvr)
+	RegisterRelayServer(gsrvr, srvr.relay)
 
 	srvr.WaitGroup.Add(2)
 
-	go relayStreamSetup(srvr)
+	go relayStreamSetup(srvr.relay)
 
 	go srvr.collector()
 
@@ -199,25 +202,10 @@ func errToRpcErr(serviceError error) *status2.Status {
 	return err.Proto()
 }
 
-// Attest is an RPC call that any other Server uses to attest against another Server.
-func (s *Server) Attest(server Relay_AttestServer) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *Server) SendProof(server Relay_SendProofServer) error {
-	// TODO need to receive some kind of Attestor that once started will look for specific uuids and their items!
-
-	server.Context() // todo something with context of client. like verify it is a known client
-	for {
-		r, err := server.Recv()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		_ = r
+func (s *Server) PrepareRelayService() {
+	s.relay = &relay{
+		WaitGroup:     s.WaitGroup,
+		Context:       s.Context,
+		ServerNetwork: s.ServerNetwork,
 	}
-	//panic("implement me")
 }

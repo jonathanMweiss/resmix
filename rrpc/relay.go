@@ -1,44 +1,66 @@
 package rrpc
 
 import (
+	"context"
 	"fmt"
-	"io"
-	"time"
-
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"io"
+	"sync"
 )
 
 // TODO: attestor, should have a priority queue of items to be ready to attest against.
-// runs on ticker of 200ms to check the top,
-// on tick will check if it's time to attest on the top. if it is pops it and checks on the next one too.
+// 	uses heap, always sorts them according to time, updates its ticker according to top.
+//	either a new item is received, or the time pops..
 
-type timedParcel struct {
-	time.Time
-	// must answer before this timed parcel is deleted
-	suspect   []byte
-	requester []byte
+type relay struct {
+	*sync.WaitGroup
+	context.Context
+	ServerNetwork ServerNetwork
 }
 
-func relayStreamSetup(srvr *Server) {
+func (s *relay) SendProof(server Relay_SendProofServer) error {
+	// TODO need to receive some kind of Attestor that once started will look for specific uuids and their items!
+
+	server.Context() // todo something with context of client. like verify it is a known client
+	for {
+		r, err := server.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_ = r
+	}
+	//panic("implement me")
+}
+
+func (s *relay) Attest(server Relay_AttestServer) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func relayStreamSetup(srvr *relay) {
 	defer srvr.WaitGroup.Done()
 
-	// TODO: map uuid to client name.
-	// TODO: map client name to stream object.
-
 	incomingChan := srvr.ServerNetwork.Incoming()
-	for callStreamResponse := range incomingChan {
-		fmt.Println("got a call stream response")
-		// todo: check if i know this request.
-		// attempt to restore request to the original requester (push the result onto `server Relay_RelayStreamServer`)
-		_ = callStreamResponse
-	}
+	for {
+		select {
+		case <-srvr.Context.Done():
+			return
 
-	// create someone that waits on all channel of anything that comes back from the network ...
+		case c, ok := <-incomingChan:
+			if !ok {
+				return
+			}
+			fmt.Println("got a call stream response", c.String())
+		}
+	}
 }
 
-func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
+func (s *relay) RelayStream(server Relay_RelayStreamServer) error {
 	peer, err := GetPeerFromContext(server.Context())
 	if err != nil {
 		return status.Error(codes.Unauthenticated, "server: cannot get peer from context")
@@ -66,12 +88,15 @@ func (s *Server) RelayStream(server Relay_RelayStreamServer) error {
 
 		s.logRequestAsReceived(relayRequest)
 
-		s.ServerNetwork.AsyncSend(
+		err = s.ServerNetwork.AsyncSend(
 			relayRequest.Request.Parcel.Note.ReceiverID,
 			&CallStreamRequest{
 				Parcel: relayRequest.Request.Parcel,
 			},
 		)
+		if err != nil {
+			continue
+		}
 	}
 }
 
@@ -80,6 +105,6 @@ func isValidRequest(id crypto.PublicKey, request *RelayStreamRequest) bool {
 
 }
 
-func (s *Server) logRequestAsReceived(request *RelayStreamRequest) {
+func (s *relay) logRequestAsReceived(request *RelayStreamRequest) {
 	// todo
 }

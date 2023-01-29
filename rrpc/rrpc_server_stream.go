@@ -55,9 +55,9 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 
 	// used by the server to send messages to the relay.
 	go func() {
-		for tosend := range s.relaystreams.getChan(relayIndex) {
+		for tosend := range s.streamsBack.getChan(relayIndex) {
 			if err := stream.Send(tosend); err != nil {
-				s.relaystreams.removeAt(relayIndex)
+				s.streamsBack.removeAt(relayIndex)
 				return
 			}
 		}
@@ -74,7 +74,7 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 		}
 
 		if err := s.validateParcel(relayIndex, request.Parcel); err != nil {
-			s.relaystreams.sendTo(relayIndex,
+			s.streamsBack.sendTo(relayIndex,
 				&CallStreamResponse{
 					RpcError: status.Newf(codes.InvalidArgument, "server:"+err.Error()).Proto(),
 				})
@@ -140,7 +140,7 @@ func (s *Server) collector() {
 			v, err := s.getOrCreateTask(tasks, task)
 
 			if err != nil {
-				s.relaystreams.sendTo(int(task.RelayIndex), &CallStreamResponse{
+				s.streamsBack.sendTo(int(task.RelayIndex), &CallStreamResponse{
 					RpcError: status.Newf(codes.InvalidArgument, "server:"+err.Error()).Proto(),
 				})
 
@@ -169,7 +169,7 @@ func (s *Server) collector() {
 				}
 
 				for i, resp := range resps {
-					s.relaystreams.sendTo(i, resp)
+					s.streamsBack.sendTo(i, resp)
 				}
 			}()
 
