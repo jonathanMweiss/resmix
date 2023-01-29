@@ -9,6 +9,29 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type srvrStreams struct {
+	chans []chan *CallStreamResponse
+}
+
+func newStreams(serverNetwork ServerNetwork) srvrStreams {
+	chans := make([]chan *CallStreamResponse, len(serverNetwork.Servers()))
+	for i := range chans {
+		chans[i] = make(chan *CallStreamResponse, 100)
+	}
+
+	return srvrStreams{
+		chans: chans,
+	}
+}
+
+func (s *srvrStreams) sendTo(index int, resp *CallStreamResponse) {
+	s.chans[index] <- resp
+}
+
+func (s *srvrStreams) getChan(index int) <-chan *CallStreamResponse {
+	return s.chans[index]
+}
+
 // CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
 func (s *Server) CallStream(stream Server_CallStreamServer) error {
 	peerIp, err := GetPeerFromContext(stream.Context())
@@ -22,10 +45,6 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 	}
 
 	relayIndex := s.ServerNetwork.GetRelayIndex(peerIp)
-
-	if err := s.relaystreams.addAt(relayIndex, stream); err != nil {
-		return err
-	}
 
 	// used by the server to send messages to the relay.
 	go func() {

@@ -27,7 +27,11 @@ func relayStreamSetup(srvr *Server) {
 	// TODO: map client name to stream object.
 
 	incomingChan := srvr.ServerNetwork.Incoming()
-	_ = incomingChan
+	for callStreamResponse := range incomingChan {
+		// todo: check if i know this request.
+		// attempt to restore request to the original requester (push the result onto `server Relay_RelayStreamServer`)
+		_ = callStreamResponse
+	}
 
 	// create someone that waits on all channel of anything that comes back from the network ...
 }
