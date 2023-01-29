@@ -242,8 +242,9 @@ func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 }
 
 func (s *Server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*CallStreamResponse, error) {
-	// todo: pool buffers..
-	bf := bytes.NewBuffer(make([]byte, 0, 1024))
+	bf := s.bufferPool.Get().(*bytes.Buffer)
+	defer s.bufferPool.Put(bf)
+
 	if err := codec.MarshalIntoWriter(response, bf); err != nil {
 		return nil, err
 	}

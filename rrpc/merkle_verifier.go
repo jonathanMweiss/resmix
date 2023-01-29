@@ -17,9 +17,7 @@ type verifiable interface {
 	pushCert(certificate *MerkleCertificate)
 }
 
-//
 // signature verification
-//
 type signatureState struct {
 	state *int64
 }
@@ -140,7 +138,6 @@ func merkleVerificationWorker(verifier *MerkleCertVerifier) {
 		select {
 		case t := <-verifier.tasks:
 			switch v := t.(type) {
-			// TODO; instead of having a switchcase, change the v into an interface which has a func that receive a buffer..
 			case *merkleVerifyTask:
 				verifyMerkleSig(v, buffer)
 			case *merkleProofAuthTask:
@@ -164,14 +161,6 @@ func authenticateMerklePath(t *merkleProofAuthTask, w crypto.BWriter) {
 	t.responseChan <- nil
 }
 
-func (m *MerkleCertVerifier) clean() {
-	// deletes the old map. and releases the memory.
-	m.taskMap.Range(func(key, value interface{}) bool {
-		m.taskMap.Delete(key)
-		return true
-	})
-}
-
 func verifyMerkleSig(t *merkleVerifyTask, w crypto.BWriter) {
 	// broadcasting that the result is ready to anyone waiting on the channel.
 	defer close(t.ready)
@@ -190,17 +179,19 @@ func verifyMerkleSig(t *merkleVerifyTask, w crypto.BWriter) {
 
 func (m *MerkleCertVerifier) Stop() {
 	m.once.Do(func() { close(m.done) })
-	m.clean()
+	cleanmapAccordingToTTL(&m.taskMap, 0)
 }
 
 func (m *MerkleCertVerifier) CreateCleaner() {
 	go func() {
+		ttl := time.Second * 5
+
 		for {
 			select {
 			case <-m.done:
 				return
-			case <-time.After(time.Second * 5):
-				m.clean()
+			case <-time.After(ttl):
+				cleanmapAccordingToTTL(&m.taskMap, 0)
 			}
 		}
 	}()

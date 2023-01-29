@@ -41,10 +41,19 @@ type client struct {
 	context.CancelFunc
 }
 
+// implementing GCable interface
 type rqstWithErr[T interface{}] struct {
 	In        T
 	Err       chan error
 	StartTime time.Time
+}
+
+func (r *rqstWithErr[T]) GetStartTime() time.Time {
+	return r.StartTime
+}
+
+func (rqst *rqstWithErr[T]) PrepareForDeletion() {
+	rqst.Err <- status.Error(codes.Canceled, "response timed out")
 }
 
 func (c *client) Close() error {
@@ -122,23 +131,14 @@ func (c *client) setServerStream() error {
 
 	go func() {
 		defer c.wg.Done()
-		dropFromMap := time.NewTicker(time.Second * 5)
+
+		const ttl = time.Second * 5
+
+		dropFromMap := time.NewTicker(ttl)
 		for {
 			select {
 			case <-dropFromMap.C:
-
-				c.waitingTasks.Range(func(key, value interface{}) bool {
-					rqst, ok := value.(*rqstWithErr[*Request]) // .Err <- fmt.Errorf("timeout"))
-					if !ok {
-						panic("client::VerifyAndDispatch: could not cast task!")
-					}
-
-					if time.Since(rqst.StartTime) > time.Second*5 {
-						rqst.Err <- status.Error(codes.Canceled, "response timed out")
-						c.waitingTasks.Delete(key)
-					}
-					return true
-				})
+				cleanmapAccordingToTTL(&c.waitingTasks, ttl)
 			case <-c.Context.Done():
 				return
 			}

@@ -174,7 +174,7 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 
 		if r.RelayStreamError != nil {
 			totalErrors += 1
-			if totalErrors >= n.MaxErrors() {
+			if totalErrors > n.MaxErrors() {
 				err = status.ErrorProto(r.RelayStreamError)
 				return nil, err
 			}

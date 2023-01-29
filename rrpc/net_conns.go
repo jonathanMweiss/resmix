@@ -34,6 +34,17 @@ type relayConnRequest struct {
 	time.Time
 }
 
+func (r relayConnRequest) GetStartTime() time.Time {
+	return r.Time
+}
+
+func (rqst relayConnRequest) PrepareForDeletion() {
+	rqst.response <- &RelayStreamResponse{
+		RelayStreamError: status.New(codes.Canceled, "response timed out").Proto(),
+		Uuid:             rqst.RelayRequest.Parcel.Note.Calluuid,
+	}
+}
+
 func NewRelayConn(ctx context.Context, address string, index int) (*RelayConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -78,22 +89,16 @@ func NewRelayConn(ctx context.Context, address string, index int) (*RelayConn, e
 	go func() {
 		defer r.WaitGroup.Done()
 
-		// todo find way to reuse code here...
-		cleanTime := time.NewTicker(time.Second * 5)
+		const ttl = time.Second * 5
+
+		cleanTime := time.NewTicker(ttl)
 
 		for {
 			select {
 			case <-r.Context.Done():
 				return
 			case <-cleanTime.C:
-
-				r.liveTasks.Range(func(key, value interface{}) bool {
-					if time.Since(value.(relayConnRequest).Time) > time.Second*5 {
-						r.liveTasks.Delete(key)
-					}
-
-					return true
-				})
+				cleanmapAccordingToTTL(&r.liveTasks, ttl)
 			}
 		}
 	}()

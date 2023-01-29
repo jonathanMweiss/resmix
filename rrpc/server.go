@@ -47,6 +47,8 @@ type Server struct {
 	collectorTasks chan *Parcel
 
 	relaystreams srvrStreams
+
+	bufferPool sync.Pool
 }
 
 func (s *Server) Stop() {
@@ -85,6 +87,8 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 		collectorTasks: make(chan *Parcel, 1000),
 
 		relaystreams: newStreams(network),
+
+		bufferPool: sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1024)) }},
 	}
 
 	RegisterServerServer(gsrvr, srvr)
