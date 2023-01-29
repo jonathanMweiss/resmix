@@ -11,21 +11,31 @@ import (
 
 // CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
 func (s *Server) CallStream(stream Server_CallStreamServer) error {
-	ip, err := GetPeerFromContext(stream.Context())
+	peerIp, err := GetPeerFromContext(stream.Context())
 	if err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::callStream: cannot get peer from context: %v", err)
 	}
 
 	// verify existence of the caller.
-	if _, err := s.ServerNetwork.GetPublicKey(ip); err != nil {
+	if _, err := s.ServerNetwork.GetPublicKey(peerIp); err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::callStream: unknown caller: %v", err)
 	}
 
-	relayIndex := s.ServerNetwork.GetRelayIndex(ip)
+	relayIndex := s.ServerNetwork.GetRelayIndex(peerIp)
 
 	if err := s.relaystreams.addAt(relayIndex, stream); err != nil {
 		return err
 	}
+
+	// used by the server to send messages to the relay.
+	go func() {
+		for tosend := range s.relaystreams.getChan(relayIndex) {
+			if err := stream.Send(tosend); err != nil {
+				s.relaystreams.removeAt(relayIndex)
+				return
+			}
+		}
+	}()
 
 	for {
 		request, err := stream.Recv()

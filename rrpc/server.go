@@ -149,6 +149,14 @@ func (s *srvrStreams) sendTo(index int, resp *CallStreamResponse) {
 	}
 }
 
+func (s *srvrStreams) getChan(index int) <-chan *CallStreamResponse {
+	return nil
+}
+
+func (s *srvrStreams) removeAt(index int) {
+	// todo
+}
+
 func serverSigner(srvr *Server) {
 	func() {
 		defer srvr.WaitGroup.Done()
