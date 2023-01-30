@@ -35,7 +35,7 @@ func (r *relaytask) PrepareForDeletion() {
 type relay struct {
 	*sync.WaitGroup
 	context.Context
-	ServerNetwork ServerNetwork
+	ServerNetwork ServerCoordinator
 
 	uuidToPeer msync.Map[string, relaytask]
 }

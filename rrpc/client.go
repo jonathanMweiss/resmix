@@ -22,7 +22,7 @@ type client struct {
 	myAddr       string
 	serverAddr   string
 	serverClient ServerClient
-	network      Network
+	network      Coordinator
 	secretKey    crypto.PrivateKey
 
 	waitingTasks msync.Map[string, *rqstWithErr] // [uuid, chan Response of type?]
@@ -165,7 +165,7 @@ func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 	return nil
 }
 
-func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *client {
+func NewClient(key crypto.PrivateKey, serverAddress string, network Coordinator) *client {
 	ownAddress := network.GetHostname(key.Public())
 	serverPk, err := network.GetPublicKey(serverAddress)
 	if err != nil {

@@ -24,7 +24,7 @@ type RrpcServer interface {
 
 type Server struct {
 	Services
-	ServerNetwork
+	ServerCoordinator
 
 	skey crypto.PrivateKey
 
@@ -53,13 +53,13 @@ func (s *Server) Serve(lis net.Listener) error {
 	return s.gsrvr.Serve(lis)
 }
 
-func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork) (RrpcServer, error) {
+func NewServerService(skey crypto.PrivateKey, s Services, network ServerCoordinator) (RrpcServer, error) {
 	cntx, cancelf := context.WithCancel(context.Background())
 	gsrvr := grpc.NewServer()
 
 	srvr := &Server{
-		Services:      s,
-		ServerNetwork: network,
+		Services:          s,
+		ServerCoordinator: network,
 
 		skey: skey,
 
@@ -99,12 +99,12 @@ func (s *Server) DirectCall(server Server_DirectCallServer) error {
 		return status.Errorf(codes.Unauthenticated, "server::dirceCall: cannot get peer from context: %v", err)
 	}
 
-	clientPkey, err := s.ServerNetwork.GetPublicKey(ip)
+	clientPkey, err := s.ServerCoordinator.GetPublicKey(ip)
 	if err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::dirceCall: unknown caller: %v", err)
 	}
 
-	verifier := s.ServerNetwork.getVerifier()
+	verifier := s.ServerCoordinator.getVerifier()
 	for {
 		request, err := server.Recv()
 		if err != nil {
@@ -182,7 +182,7 @@ func (s *Server) PrepareRelayService() {
 	s.relay = &relay{
 		WaitGroup:     s.WaitGroup,
 		Context:       s.Context,
-		ServerNetwork: s.ServerNetwork,
+		ServerNetwork: s.ServerCoordinator,
 	}
 }
 

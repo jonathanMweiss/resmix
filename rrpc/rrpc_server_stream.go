@@ -16,7 +16,7 @@ type srvrStreams struct {
 	chans []chan *CallStreamResponse
 }
 
-func newStreams(serverNetwork ServerNetwork) srvrStreams {
+func newStreams(serverNetwork ServerCoordinator) srvrStreams {
 	chans := make([]chan *CallStreamResponse, len(serverNetwork.Servers()))
 	for i := range chans {
 		chans[i] = make(chan *CallStreamResponse, 100)
@@ -47,11 +47,11 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 	}
 
 	// verify existence of the caller.
-	if _, err := s.ServerNetwork.GetPublicKey(peerIp); err != nil {
+	if _, err := s.ServerCoordinator.GetPublicKey(peerIp); err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::callStream: unknown caller: %v", err)
 	}
 
-	relayIndex := s.ServerNetwork.GetRelayIndex(peerIp)
+	relayIndex := s.ServerCoordinator.GetRelayIndex(peerIp)
 
 	// used by the server to send messages to the relay.
 	go func() {
@@ -97,13 +97,13 @@ func (s *Server) validateParcel(index int, parcel *Parcel) error {
 	}
 
 	tmpCert := (*senderNote)(parcel.Note).popCert()
-	if err := s.ServerNetwork.getVerifier().Verify(parcel.Note.SenderID, parcel); err != nil {
+	if err := s.ServerCoordinator.getVerifier().Verify(parcel.Note.SenderID, parcel); err != nil {
 		return err
 	}
 	(*senderNote)(parcel.Note).pushCert(tmpCert)
 
 	// verify the note contains a valid signature too. Otherwise, you cannot fill it!
-	return s.ServerNetwork.getVerifier().Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
+	return s.ServerCoordinator.getVerifier().Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
 }
 
 type rrpcTask struct {
@@ -148,7 +148,7 @@ func (s *Server) collector() {
 			}
 
 			v.parcels = append(v.parcels, task)
-			if len(v.parcels) < s.ServerNetwork.MinimalRelayedParcels() {
+			if len(v.parcels) < s.ServerCoordinator.MinimalRelayedParcels() {
 				continue
 			}
 
@@ -186,7 +186,7 @@ func (s *Server) getOrCreateTask(tasks map[string]*rrpcTask, parcel *Parcel) (*r
 	v, ok := tasks[parcel.Note.Calluuid]
 	if !ok {
 		v = &rrpcTask{
-			parcels:   make([]*Parcel, 0, s.ServerNetwork.MinimalRelayedParcels()),
+			parcels:   make([]*Parcel, 0, s.ServerCoordinator.MinimalRelayedParcels()),
 			savedNote: parcel.Note,
 			startTime: time.Now(),
 			service:   service,
@@ -225,7 +225,7 @@ func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 
 	msgSize := binary.LittleEndian.Uint32(v.parcels[0].MessageLength)
 
-	shards := s.ServerNetwork.getErrorCorrectionCode().NewShards()
+	shards := s.ServerCoordinator.getErrorCorrectionCode().NewShards()
 
 	for i := 0; i < len(v.parcels); i++ {
 		(*eccClientParcel)(v.parcels[i]).PutIntoShards(shards)
@@ -233,7 +233,7 @@ func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 		v.parcels[i] = nil
 	}
 
-	data, err := s.ServerNetwork.getErrorCorrectionCode().AuthReconstruct(shards, int(msgSize))
+	data, err := s.ServerCoordinator.getErrorCorrectionCode().AuthReconstruct(shards, int(msgSize))
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "server reconstruction failure: %v", err)
 	}
@@ -252,13 +252,13 @@ func (s *Server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*Call
 	msgLength := make([]byte, 4)
 	binary.LittleEndian.PutUint32(msgLength, uint32(len(bf.Bytes())))
 
-	chunks, err := s.ServerNetwork.getErrorCorrectionCode().AuthEncode(bf.Bytes())
+	chunks, err := s.ServerCoordinator.getErrorCorrectionCode().AuthEncode(bf.Bytes())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failure in encoding serverside, %v:", err)
 	}
 
-	toRelayBack := make([]*CallStreamResponse, len(s.ServerNetwork.Servers()))
-	for i := range s.ServerNetwork.Servers() {
+	toRelayBack := make([]*CallStreamResponse, len(s.ServerCoordinator.Servers()))
+	for i := range s.ServerCoordinator.Servers() {
 		srsp := &CallStreamResponse{
 			Response: &RrpcResponse{
 				MessageLength: msgLength,
@@ -282,8 +282,8 @@ func (s *Server) erroToCallStreamResponseArray(v *rrpcTask, err error) []*CallSt
 	}
 	statusErrorProto := st.Proto()
 
-	sresponse := make([]*CallStreamResponse, len(s.ServerNetwork.Servers()))
-	for i := range s.ServerNetwork.Servers() {
+	sresponse := make([]*CallStreamResponse, len(s.ServerCoordinator.Servers()))
+	for i := range s.ServerCoordinator.Servers() {
 		sresponse[i] = &CallStreamResponse{
 			RpcError:  statusErrorProto,
 			PublicKey: s.skey.Public(),

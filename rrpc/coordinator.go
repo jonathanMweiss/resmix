@@ -17,7 +17,7 @@ import (
 
 // SemiNetwork internally keeps track of all relay servers and various
 // states associated with the networkConfig.
-type NetData interface {
+type NetworkData interface {
 	// Servers return the list of addresses of the servers.
 	Servers() []string
 
@@ -49,10 +49,9 @@ type RelayGroup interface {
 	PublishProof(*Proof)
 }
 
-// Network contains any data used in the rrpc, along with Connections to the relays.
-// TODO: this is no longer just a network. consider renaming.
-type Network interface {
-	NetData
+// Coordinator contains any data used in the rrpc, along with Connections to the relays.
+type Coordinator interface {
+	NetworkData
 
 	getErrorCorrectionCode() ecc.VerifyingEncoderDecoder
 	getVerifier() *MerkleCertVerifier
@@ -62,14 +61,13 @@ type Network interface {
 	Close() error
 }
 
-// TODO: Rename rename.
-type ServerNetwork interface {
-	Network
+type ServerCoordinator interface {
+	Coordinator
 
 	AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) error
 
 	// Incoming returns anything(!) even timeouts that came over the
-	// network, from any of the servers this network is listening on!
+	// coordinator, from any of the servers this coordinator is listening on!
 	Incoming() <-chan *CallStreamResponse
 }
 
@@ -88,7 +86,7 @@ type NetworkConfig struct {
 	ServerConfigs []ServerData
 }
 
-type semiNet struct {
+type network struct {
 	serverAddresses []string
 	// used as a set for keys (string([]byte))
 	pkToHost map[string]string
@@ -98,12 +96,12 @@ type semiNet struct {
 	Tau int
 }
 
-func (n *semiNet) GetRelayIndex(ip string) int {
+func (n *network) GetRelayIndex(ip string) int {
 	return sort.SearchStrings(n.serverAddresses, ip) // like searching a tree...
 }
 
-type network struct {
-	NetData
+type coordinator struct {
+	NetworkData
 	*MerkleCertVerifier
 
 	skey        crypto.PrivateKey
@@ -119,15 +117,15 @@ type network struct {
 	ecc    ecc.VerifyingEncoderDecoder
 }
 
-func (n *network) getErrorCorrectionCode() ecc.VerifyingEncoderDecoder {
+func (n *coordinator) getErrorCorrectionCode() ecc.VerifyingEncoderDecoder {
 	return n.ecc
 }
 
-func (n *network) getVerifier() *MerkleCertVerifier {
+func (n *coordinator) getVerifier() *MerkleCertVerifier {
 	return n.MerkleCertVerifier
 }
 
-func (n *network) AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) error {
+func (n *coordinator) AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) error {
 	hostname := n.GetHostname(publickey)
 	if hostname == "" {
 		return status.Error(codes.NotFound, "public key not found")
@@ -142,15 +140,15 @@ func (n *network) AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) 
 	return nil
 }
 
-func (n *network) Incoming() <-chan *CallStreamResponse {
+func (n *coordinator) Incoming() <-chan *CallStreamResponse {
 	return n.callResponseChan
 }
 
-func (n *network) getRelayGroup() RelayGroup {
+func (n *coordinator) getRelayGroup() RelayGroup {
 	return n
 }
 
-func (n *network) RobustRequest(ctx context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
+func (n *coordinator) RobustRequest(ctx context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
 	if len(requests) != len(n.relayConns) {
 		return nil, fmt.Errorf("bad request, number of requests differs from number of relays")
 	}
@@ -204,7 +202,7 @@ func (n *network) RobustRequest(ctx context.Context, requests []*RelayRequest) (
 	}
 }
 
-func (n *network) validateRrpcResponse(r relayResponse) error {
+func (n *coordinator) validateRrpcResponse(r relayResponse) error {
 	switch {
 	case r.RelayStreamError != nil:
 		return status.ErrorProto(r.RelayStreamError)
@@ -221,25 +219,28 @@ func (n *network) validateRrpcResponse(r relayResponse) error {
 
 }
 
-func (n *network) CancelRequest(uuid string) {
+func (n *coordinator) CancelRequest(uuid string) {
 	for _, conn := range n.relayConns {
 		conn.cancelRequest(uuid)
 	}
 }
 
-func (n *network) PublishProof(p *Proof) {
+func (n *coordinator) PublishProof(p *Proof) {
 	for _, conn := range n.relayConns {
 		conn.SendProof(p)
 	}
 }
 
-func (n *network) GetRelayConn(hostname string) *RelayConn {
+func (n *coordinator) GetRelayConn(hostname string) *RelayConn {
 	return n.relayConns[hostname]
 }
 
-// NewNetwork creates a Network that is tied to a speicific node. cannot reuse for different nodes on same machine!
-func NewNetwork(netdata *semiNet, skey crypto.PrivateKey) ServerNetwork {
-	ecc_, err := netdata.NewErrorCorrectionCode()
+// NewCoordinator creates a Coordinator that is tied to a speicific node. cannot reuse for different nodes on same machine!
+func NewCoordinator(netdata NetworkData, skey crypto.PrivateKey) ServerCoordinator {
+	maxErasures := netdata.MaxErrors()
+	numDataShards := len(netdata.Servers()) - maxErasures
+
+	ecc_, err := ecc.NewRSEncoderDecoder(numDataShards, maxErasures)
 	if err != nil {
 		panic(err)
 	}
@@ -250,9 +251,9 @@ func NewNetwork(netdata *semiNet, skey crypto.PrivateKey) ServerNetwork {
 	myAddress := netdata.GetHostname(skey.Public())
 	ctx = AddIPToContext(ctx, myAddress)
 
-	return &network{
-		NetData: netdata,
-		skey:    skey,
+	return &coordinator{
+		NetworkData: netdata,
+		skey:        skey,
 
 		relayConns:  make(map[string]*RelayConn, len(netdata.Servers())),
 		serverConns: make(map[string]*ServerConn, len(netdata.Servers())),
@@ -269,7 +270,7 @@ func NewNetwork(netdata *semiNet, skey crypto.PrivateKey) ServerNetwork {
 	}
 }
 
-func (n *network) Close() error {
+func (n *coordinator) Close() error {
 	defer n.MerkleCertVerifier.Stop()
 	defer n.ecc.Stop()
 
@@ -293,8 +294,8 @@ func (n *network) Close() error {
 	return err
 }
 
-func (n *network) Dial() error {
-	for index, s := range n.NetData.Servers() {
+func (n *coordinator) Dial() error {
+	for index, s := range n.NetworkData.Servers() {
 		relayConn, err := NewRelayConn(n.ctx, s, index)
 		if err != nil {
 			return n.Close()
@@ -312,18 +313,11 @@ func (n *network) Dial() error {
 	return nil
 }
 
-func (n *semiNet) Servers() []string {
+func (n *network) Servers() []string {
 	return n.serverAddresses
 }
 
-func (n *semiNet) NewErrorCorrectionCode() (ecc.VerifyingEncoderDecoder, error) {
-	// todo: consider reusing the same encoder/decoder for all requests...
-	maxErasures := n.MaxErrors()
-	numDataShards := n.NumServers() - maxErasures
-	return ecc.NewRSEncoderDecoder(numDataShards, maxErasures)
-}
-
-func (n *semiNet) MinimalAttestationNumber() int {
+func (n *network) MinimalAttestationNumber() int {
 	// tau > 2(t+x+l)
 	// tau/2 > t+x+l
 	// hence: tau/2 >= t+x+l+1 which is isMinimalAttestationNumber
@@ -332,40 +326,40 @@ func (n *semiNet) MinimalAttestationNumber() int {
 
 var unknownHostErr = status.Newf(codes.NotFound, "unknown hots").Err()
 
-func (n *semiNet) GetPublicKey(hostname string) (crypto.PublicKey, error) {
+func (n *network) GetPublicKey(hostname string) (crypto.PublicKey, error) {
 	if pk, ok := n.hostToPK[hostname]; ok {
 		return pk, nil
 	}
 	return nil, unknownHostErr
 }
 
-func (n *semiNet) ContainKey(key []byte) bool {
+func (n *network) ContainKey(key []byte) bool {
 	if _, ok := n.pkToHost[string(key)]; ok {
 		return true
 	}
 	return false
 }
 
-func (n *semiNet) MaxErrors() int {
+func (n *network) MaxErrors() int {
 	return n.Tau - 1
 }
 
-func (n *semiNet) MinimalRelayedParcels() int {
+func (n *network) MinimalRelayedParcels() int {
 	return n.NumServers() - n.MaxErrors()
 
 }
 
-func (n *semiNet) GetHostname(pub []byte) string {
+func (n *network) GetHostname(pub []byte) string {
 	return n.pkToHost[string(pub)]
 }
 
-func (n *semiNet) NumServers() int {
+func (n *network) NumServers() int {
 	return len(n.serverAddresses)
 }
 
 // build new networkConfig type
-func NewNetData(config *NetworkConfig) *semiNet {
-	nt := &semiNet{
+func NewNetData(config *NetworkConfig) *network {
+	nt := &network{
 		pkToHost: make(map[string]string),
 		hostToPK: make(map[string]crypto.PublicKey),
 		Tau:      config.Tau,
@@ -384,7 +378,7 @@ func NewNetData(config *NetworkConfig) *semiNet {
 	return nt
 }
 
-func (n *semiNet) addServer(scnf ServerData) {
+func (n *network) addServer(scnf ServerData) {
 	n.serverAddresses = append(n.serverAddresses, scnf.Address)
 	n.hostToPK[scnf.Address] = scnf.Publickey
 	n.pkToHost[string(scnf.Publickey)] = scnf.Address

@@ -33,7 +33,7 @@ type clientTestSetup struct {
 	sk         crypto.PrivateKey
 	serverAddr string
 	srvrs      []RrpcServer
-	networks   []Network
+	networks   []Coordinator
 }
 
 func (c *clientTestSetup) start(t require.TestingT) {
@@ -77,14 +77,14 @@ func newClientTestSetup(t require.TestingT, srvc Services) clientTestSetup {
 	}
 	netdata := NewNetData(netconf)
 
-	networks := make([]Network, 0, len(netdata.Servers()))
+	networks := make([]Coordinator, 0, len(netdata.Servers()))
 	srvrs := make([]RrpcServer, 0, len(netdata.Servers()))
 
 	for i, s := range netdata.Servers() {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
 
-		network := NewNetwork(netdata, sks[i])
+		network := NewCoordinator(netdata, sks[i])
 		networks = append(networks, network)
 
 		srvr, err := NewServerService(sks[i], srvc, network)
@@ -113,7 +113,7 @@ func TestDirectCall(t *testing.T) {
 	setup.start(t)
 	defer setup.releaseResources()
 
-	// Ensuring the network dials to all relays.
+	// Ensuring the coordinator dials to all relays.
 	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 	for i := 0; i < 10; i++ {
@@ -152,7 +152,7 @@ func TestDirectCallErrors(t *testing.T) {
 	setup.start(t)
 	defer setup.releaseResources()
 
-	// Ensuring the network dials to all relays.
+	// Ensuring the coordinator dials to all relays.
 	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
@@ -175,7 +175,7 @@ func BenchmarkDirectCall(b *testing.B) {
 	setup.start(b)
 	defer setup.releaseResources()
 
-	// Ensuring the network dials to all relays.
+	// Ensuring the coordinator dials to all relays.
 	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
 
 	req := &Request{
