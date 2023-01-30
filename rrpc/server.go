@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"runtime"
 	"sync"
 
 	"github.com/jonathanMweiss/resmix/internal/codec"
 	"github.com/jonathanMweiss/resmix/internal/crypto"
-	"github.com/jonathanMweiss/resmix/internal/ecc"
 	"golang.org/x/net/context"
 	status2 "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
@@ -27,10 +25,8 @@ type RrpcServer interface {
 type Server struct {
 	Services
 	ServerNetwork
-	verifier *MerkleCertVerifier
 
-	skey           crypto.PrivateKey
-	decoderEncoder ecc.VerifyingEncoderDecoder
+	skey crypto.PrivateKey
 
 	collectorTasks chan *Parcel
 
@@ -61,18 +57,11 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 	cntx, cancelf := context.WithCancel(context.Background())
 	gsrvr := grpc.NewServer()
 
-	decoderEncoder, err := network.NewErrorCorrectionCode()
-	if err != nil {
-		return nil, err
-	}
-
 	srvr := &Server{
 		Services:      s,
 		ServerNetwork: network,
-		verifier:      NewVerifier(runtime.NumCPU()),
 
-		skey:           skey,
-		decoderEncoder: decoderEncoder,
+		skey: skey,
 
 		WaitGroup:  &sync.WaitGroup{},
 		CancelFunc: cancelf,
@@ -115,6 +104,7 @@ func (s *Server) DirectCall(server Server_DirectCallServer) error {
 		return status.Errorf(codes.Unauthenticated, "server::dirceCall: unknown caller: %v", err)
 	}
 
+	verifier := s.ServerNetwork.getVerifier()
 	for {
 		request, err := server.Recv()
 		if err != nil {
@@ -137,7 +127,7 @@ func (s *Server) DirectCall(server Server_DirectCallServer) error {
 			)
 		}
 
-		if err := s.verifier.Verify(request.Note.SenderID, (*senderNote)(request.Note)); err != nil {
+		if err := verifier.Verify(request.Note.SenderID, (*senderNote)(request.Note)); err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 

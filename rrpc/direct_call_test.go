@@ -45,7 +45,7 @@ func (c *clientTestSetup) releaseResources() {
 
 	fmt.Println("closing servers")
 	for i, srvr := range c.srvrs {
-		if err := c.networks[i].CloseConnections(); err != nil {
+		if err := c.networks[i].Close(); err != nil {
 			panic(err)
 		}
 

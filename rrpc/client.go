@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
-	"github.com/jonathanMweiss/resmix/internal/ecc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,13 +19,11 @@ import (
 // client is responsible for connecting to its main server,
 // to connect through relays, it expects to receive some object that can communicate via relays.
 type client struct {
-	myAddr         string
-	serverAddr     string
-	serverClient   ServerClient
-	network        Network
-	secretKey      crypto.PrivateKey
-	encoderDecoder ecc.VerifyingEncoderDecoder
-	verifier       *MerkleCertVerifier
+	myAddr       string
+	serverAddr   string
+	serverClient ServerClient
+	network      Network
+	secretKey    crypto.PrivateKey
 
 	waitingTasks msync.Map[string, *rqstWithErr] // [uuid, chan Response of type?]
 
@@ -59,7 +56,6 @@ func (rqst *rqstWithErr) PrepareForDeletion() {
 
 func (c *client) Close() error {
 	c.CancelFunc()
-	close(c.verifier.done)
 	return nil
 }
 
@@ -87,7 +83,7 @@ func (c *client) setServerStream() error {
 				continue
 			}
 
-			c.network.GetRelayGroup().PublishProof(&Proof{
+			c.network.getRelayGroup().PublishProof(&Proof{
 				ServerHostname:   c.serverAddr,
 				WorkExchangeNote: msg.Note,
 			})
@@ -153,7 +149,7 @@ func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 		close(reqst.Err)
 	}()
 
-	err = c.verifier.Verify(c.serverID, (*receiverNote)(msg.Note))
+	err = c.network.getVerifier().Verify(c.serverID, (*receiverNote)(msg.Note))
 	if err != nil {
 		return err
 	}
@@ -181,20 +177,14 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 		panic(err)
 	}
 
-	encoderDecoder, err := network.NewErrorCorrectionCode()
-	//if err != nil {
-	//	panic(err)
-	//}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	c := client{
-		myAddr:                ownAddress,
-		serverAddr:            serverAddress,
-		serverClient:          NewServerClient(cc),
-		network:               network,
-		secretKey:             key,
-		encoderDecoder:        encoderDecoder,
-		verifier:              NewVerifier(1),
+		myAddr:       ownAddress,
+		serverAddr:   serverAddress,
+		serverClient: NewServerClient(cc),
+		network:      network,
+		secretKey:    key,
+
 		waitingTasks:          msync.Map[string, *rqstWithErr]{},
 		wg:                    sync.WaitGroup{},
 		identifier:            key.Public(),
@@ -269,7 +259,7 @@ func (c *client) RobustCall(req *Request) error {
 		return err
 	}
 
-	out, err := c.network.GetRelayGroup().RobustRequest(req, robustCallRequests)
+	out, err := c.network.getRelayGroup().RobustRequest(req, robustCallRequests)
 	if err != nil {
 		return err
 	}
@@ -294,7 +284,7 @@ func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
 	msgLength := make([]byte, 4)
 	binary.LittleEndian.PutUint32(msgLength, uint32(len(margs)))
 
-	chunks, err := c.encoderDecoder.AuthEncode(margs)
+	chunks, err := c.network.getErrorCorrectionCode().AuthEncode(margs)
 	if err != nil {
 		return nil, fmt.Errorf("failure in encoding, client side: %v", err)
 	}
@@ -324,6 +314,21 @@ func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
 }
 
 func (c *client) reconstruct(out []*CallStreamResponse) {
-	// TODO
-	panic("implement me")
+	panic("not implemented")
+	//// safety measure.
+	//if len(parcels) <= 0 {
+	//	return nil, errNoParcels
+	//}
+	//p := parcels[0]
+	//msgSize := binary.LittleEndian.Uint32(p.MessageLength)
+	//shards := c.decoder.NewShards()
+	//for _, parcel := range parcels {
+	//	(*eccServerParcel)(parcel).PutIntoShards(shards)
+	//}
+	//
+	//data, err := c.decoder.AuthReconstruct(shards, int(msgSize))
+	//if err != nil {
+	//	return nil, fmt.Errorf("reconstruction error in client to %v:%v", c.serverAddr, err)
+	//}
+	//return data, nil
 }

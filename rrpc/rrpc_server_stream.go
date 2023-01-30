@@ -97,13 +97,13 @@ func (s *Server) validateParcel(index int, parcel *Parcel) error {
 	}
 
 	tmpCert := (*senderNote)(parcel.Note).popCert()
-	if err := s.verifier.Verify(parcel.Note.SenderID, parcel); err != nil {
+	if err := s.ServerNetwork.getVerifier().Verify(parcel.Note.SenderID, parcel); err != nil {
 		return err
 	}
 	(*senderNote)(parcel.Note).pushCert(tmpCert)
 
 	// verify the note contains a valid signature too. Otherwise, you cannot fill it!
-	return s.verifier.Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
+	return s.ServerNetwork.getVerifier().Verify(parcel.Note.ReceiverID, (*senderNote)(parcel.Note))
 }
 
 type rrpcTask struct {
@@ -225,7 +225,7 @@ func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 
 	msgSize := binary.LittleEndian.Uint32(v.parcels[0].MessageLength)
 
-	shards := s.decoderEncoder.NewShards()
+	shards := s.ServerNetwork.getErrorCorrectionCode().NewShards()
 
 	for i := 0; i < len(v.parcels); i++ {
 		(*eccClientParcel)(v.parcels[i]).PutIntoShards(shards)
@@ -233,7 +233,7 @@ func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 		v.parcels[i] = nil
 	}
 
-	data, err := s.decoderEncoder.AuthReconstruct(shards, int(msgSize))
+	data, err := s.ServerNetwork.getErrorCorrectionCode().AuthReconstruct(shards, int(msgSize))
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "server reconstruction failure: %v", err)
 	}
@@ -252,7 +252,7 @@ func (s *Server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*Call
 	msgLength := make([]byte, 4)
 	binary.LittleEndian.PutUint32(msgLength, uint32(len(bf.Bytes())))
 
-	chunks, err := s.decoderEncoder.AuthEncode(bf.Bytes())
+	chunks, err := s.ServerNetwork.getErrorCorrectionCode().AuthEncode(bf.Bytes())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failure in encoding serverside, %v:", err)
 	}

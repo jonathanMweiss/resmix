@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"runtime"
 	"sort"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
@@ -17,10 +18,6 @@ import (
 // SemiNetwork internally keeps track of all relay servers and various
 // states associated with the networkConfig.
 type NetData interface {
-	// creates a new error correction code, to be used.
-	// notice that creating ecc.VerifyingEncoderDecoder might spin up goroutines.
-	NewErrorCorrectionCode() (ecc.VerifyingEncoderDecoder, error)
-
 	// Servers return the list of addresses of the servers.
 	Servers() []string
 
@@ -53,15 +50,19 @@ type RelayGroup interface {
 }
 
 // Network contains any data used in the rrpc, along with Connections to the relays.
+// TODO: this is no longer just a network. consider renaming.
 type Network interface {
 	NetData
 
-	Dial() error
-	CloseConnections() error
+	getErrorCorrectionCode() ecc.VerifyingEncoderDecoder
+	getVerifier() *MerkleCertVerifier
+	getRelayGroup() RelayGroup
 
-	GetRelayGroup() RelayGroup
+	Dial() error
+	Close() error
 }
 
+// TODO: Rename rename.
 type ServerNetwork interface {
 	Network
 
@@ -103,6 +104,8 @@ func (n *semiNet) GetRelayIndex(ip string) int {
 
 type network struct {
 	NetData
+	*MerkleCertVerifier
+
 	skey        crypto.PrivateKey
 	relayConns  map[string]*RelayConn
 	serverConns map[string]*ServerConn
@@ -113,6 +116,15 @@ type network struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	ecc    ecc.VerifyingEncoderDecoder
+}
+
+func (n *network) getErrorCorrectionCode() ecc.VerifyingEncoderDecoder {
+	return n.ecc
+}
+
+func (n *network) getVerifier() *MerkleCertVerifier {
+	return n.MerkleCertVerifier
 }
 
 func (n *network) AsyncSend(publickey crypto.PublicKey, msg *CallStreamRequest) error {
@@ -134,7 +146,7 @@ func (n *network) Incoming() <-chan *CallStreamResponse {
 	return n.callResponseChan
 }
 
-func (n *network) GetRelayGroup() RelayGroup {
+func (n *network) getRelayGroup() RelayGroup {
 	return n
 }
 
@@ -174,10 +186,15 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 
 		if r.RelayStreamError != nil {
 			totalErrors += 1
-			if totalErrors > n.MaxErrors() {
-				err = status.ErrorProto(r.RelayStreamError)
-				return nil, err
-			}
+			err = status.ErrorProto(r.RelayStreamError)
+		} else if r.Response.RpcError != nil {
+			totalErrors += 1
+			err = status.ErrorProto(r.Response.RpcError)
+		}
+
+		if totalErrors > n.MaxErrors() {
+
+			return nil, err
 		}
 
 		responses = append(responses, r.Response)
@@ -207,17 +224,27 @@ func (n *network) GetRelayConn(hostname string) *RelayConn {
 }
 
 // NewNetwork creates a Network that is tied to a speicific node. cannot reuse for different nodes on same machine!
-func NewNetwork(netdata NetData, skey crypto.PrivateKey) ServerNetwork {
+func NewNetwork(netdata *semiNet, skey crypto.PrivateKey) ServerNetwork {
+	ecc_, err := netdata.NewErrorCorrectionCode()
+	if err != nil {
+		panic(err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
+	v := NewVerifier(runtime.NumCPU())
 	myAddress := netdata.GetHostname(skey.Public())
 	ctx = AddIPToContext(ctx, myAddress)
 
 	return &network{
-		NetData:     netdata,
-		skey:        skey,
+		NetData: netdata,
+		skey:    skey,
+
 		relayConns:  make(map[string]*RelayConn, len(netdata.Servers())),
 		serverConns: make(map[string]*ServerConn, len(netdata.Servers())),
+
+		MerkleCertVerifier: v,
+		ecc:                ecc_,
 
 		ctx:    ctx,
 		cancel: cancel,
@@ -228,7 +255,10 @@ func NewNetwork(netdata NetData, skey crypto.PrivateKey) ServerNetwork {
 	}
 }
 
-func (n *network) CloseConnections() error {
+func (n *network) Close() error {
+	defer n.MerkleCertVerifier.Stop()
+	defer n.ecc.Stop()
+
 	close(n.callResponseChan)
 
 	n.cancel()
@@ -253,14 +283,14 @@ func (n *network) Dial() error {
 	for index, s := range n.NetData.Servers() {
 		relayConn, err := NewRelayConn(n.ctx, s, index)
 		if err != nil {
-			return n.CloseConnections()
+			return n.Close()
 		}
 
 		n.relayConns[s] = relayConn
 
 		serverConn, err := newServerConn(n.ctx, s, n.callResponseChan)
 		if err != nil {
-			return n.CloseConnections()
+			return n.Close()
 		}
 		n.serverConns[s] = serverConn
 	}
@@ -320,7 +350,7 @@ func (n *semiNet) NumServers() int {
 }
 
 // build new networkConfig type
-func NewNetData(config *NetworkConfig) NetData {
+func NewNetData(config *NetworkConfig) *semiNet {
 	nt := &semiNet{
 		pkToHost: make(map[string]string),
 		hostToPK: make(map[string]crypto.PublicKey),
