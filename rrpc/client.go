@@ -133,17 +133,7 @@ func (c *client) setServerStream() error {
 	go func() {
 		defer c.wg.Done()
 
-		const ttl = time.Second * 5
-
-		dropFromMap := time.NewTicker(ttl)
-		for {
-			select {
-			case <-dropFromMap.C:
-				cleanmapAccordingToTTL(&c.waitingTasks, ttl)
-			case <-c.Context.Done():
-				return
-			}
-		}
+		foreverCleanup(c.Context, &c.waitingTasks)
 	}()
 
 	return nil

@@ -89,7 +89,7 @@ func NewServerService(skey crypto.PrivateKey, s Services, network ServerNetwork)
 
 	srvr.RegIntoGrpc()
 
-	srvr.relay.relayStreamSetup()
+	srvr.relay.relaySetup()
 
 	srvr.WaitGroup.Add(1)
 	go srvr.collector()

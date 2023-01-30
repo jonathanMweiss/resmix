@@ -90,18 +90,7 @@ func NewRelayConn(ctx context.Context, address string, index int) (*RelayConn, e
 	go func() {
 		defer r.WaitGroup.Done()
 
-		const ttl = time.Second * 5
-
-		cleanTime := time.NewTicker(ttl)
-
-		for {
-			select {
-			case <-r.Context.Done():
-				return
-			case <-cleanTime.C:
-				cleanmapAccordingToTTL(&r.liveTasks, ttl)
-			}
-		}
+		foreverCleanup(r.Context, &r.liveTasks)
 	}()
 
 	return r, nil

@@ -2,14 +2,13 @@ package rrpc
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"github.com/jonathanMweiss/resmix/internal/crypto"
+	"github.com/jonathanMweiss/resmix/internal/crypto/merklearray"
 	"github.com/jonathanMweiss/resmix/internal/msync"
 	"sync"
 	"sync/atomic"
-	"time"
-
-	"github.com/jonathanMweiss/resmix/internal/crypto"
-	"github.com/jonathanMweiss/resmix/internal/crypto/merklearray"
 )
 
 type verifiable interface {
@@ -45,13 +44,20 @@ type MerkleCertVerifier struct {
 	done    chan bool
 	once    sync.Once
 	taskMap msync.Map[string, merklecerttask]
+
+	context.Context
+	context.CancelFunc
 }
 
 func NewVerifier(numWorkers int) *MerkleCertVerifier {
+	ctx, cancel := context.WithCancel(context.Background())
 	verifier := &MerkleCertVerifier{
-		taskMap: msync.Map[string, merklecerttask]{},
-		tasks:   make(chan merklecerttask, numWorkers*8),
-		done:    make(chan bool),
+		tasks:      make(chan merklecerttask, numWorkers*8),
+		done:       make(chan bool),
+		once:       sync.Once{},
+		taskMap:    msync.Map[string, merklecerttask]{},
+		Context:    ctx,
+		CancelFunc: cancel,
 	}
 	verifier.setWorkers(numWorkers)
 	verifier.CreateCleaner()
@@ -180,21 +186,13 @@ func verifyMerkleSig(t *merkleVerifyTask, w crypto.BWriter) {
 
 func (m *MerkleCertVerifier) Stop() {
 	m.once.Do(func() { close(m.done) })
+	m.CancelFunc()
 	cleanmapAccordingToTTL(&m.taskMap, 0)
 }
 
 func (m *MerkleCertVerifier) CreateCleaner() {
 	go func() {
-		ttl := time.Second * 5
-
-		for {
-			select {
-			case <-m.done:
-				return
-			case <-time.After(ttl):
-				cleanmapAccordingToTTL(&m.taskMap, 0)
-			}
-		}
+		foreverCleanup(m.Context, &m.taskMap)
 	}()
 }
 

@@ -1,6 +1,7 @@
 package rrpc
 
 import (
+	"context"
 	"github.com/jonathanMweiss/resmix/internal/msync"
 	"time"
 )
@@ -28,4 +29,18 @@ func cleanmapAccordingToTTL[U comparable, T any](mp *msync.Map[U, T], ttl time.D
 
 		return true
 	})
+}
+
+const ttl = time.Second * 5
+
+func foreverCleanup[U comparable, T any](ctx context.Context, mp *msync.Map[U, T]) {
+	dropFromMap := time.NewTicker(ttl)
+	for {
+		select {
+		case <-dropFromMap.C:
+			cleanmapAccordingToTTL(mp, ttl)
+		case <-ctx.Done():
+			return
+		}
+	}
 }

@@ -4,20 +4,41 @@ import (
 	"context"
 	"fmt"
 	"github.com/jonathanMweiss/resmix/internal/crypto"
+	"github.com/jonathanMweiss/resmix/internal/msync"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io"
 	"sync"
+	"time"
 )
 
 // TODO: attestor, should have a priority queue of items to be ready to attest against.
 // 	uses heap, always sorts them according to time, updates its ticker according to top.
 //	either a new item is received, or the time pops..
 
+type relaytask struct {
+	uuid      string
+	startTime time.Time
+	respchan  chan *RelayStreamResponse
+}
+
+func (r *relaytask) GetStartTime() time.Time {
+	return r.startTime
+}
+
+func (r *relaytask) PrepareForDeletion() {
+	r.respchan <- &RelayStreamResponse{
+		RelayStreamError: status.New(codes.Canceled, "relay: task timed out").Proto(),
+		Uuid:             r.uuid,
+	}
+}
+
 type relay struct {
 	*sync.WaitGroup
 	context.Context
 	ServerNetwork ServerNetwork
+
+	uuidToPeer msync.Map[string, relaytask]
 }
 
 func (s *relay) SendProof(server Relay_SendProofServer) error {
@@ -42,8 +63,8 @@ func (s *relay) Attest(server Relay_AttestServer) error {
 	panic("implement me")
 }
 
-func (srvr *relay) relayStreamSetup() {
-	srvr.WaitGroup.Add(1)
+func (srvr *relay) relaySetup() {
+	srvr.WaitGroup.Add(2)
 
 	go func() {
 		defer srvr.WaitGroup.Done()
@@ -61,6 +82,12 @@ func (srvr *relay) relayStreamSetup() {
 				fmt.Println("got a call stream response", c.String())
 			}
 		}
+	}()
+
+	go func() {
+		defer srvr.WaitGroup.Done()
+
+		foreverCleanup(srvr.Context, &srvr.uuidToPeer)
 	}()
 }
 
