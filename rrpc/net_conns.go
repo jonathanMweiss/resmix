@@ -3,7 +3,7 @@ package rrpc
 import (
 	"context"
 	"fmt"
-	"github.com/jonathanMweiss/resmix/internal/syncmap"
+	"github.com/jonathanMweiss/resmix/internal/msync"
 	"io"
 	"sync"
 	"time"
@@ -23,7 +23,7 @@ type RelayConn struct {
 
 	sendProofChan chan *Proof
 	requests      chan *RelayStreamRequest
-	liveTasks     syncmap.SyncMap[string, relayConnRequest]
+	liveTasks     msync.Map[string, relayConnRequest]
 	index         int
 }
 
@@ -66,7 +66,7 @@ func NewRelayConn(ctx context.Context, address string, index int) (*RelayConn, e
 
 		sendProofChan: make(chan *Proof, 100),
 		requests:      make(chan *RelayStreamRequest, 100),
-		liveTasks:     syncmap.SyncMap[string, relayConnRequest]{},
+		liveTasks:     msync.Map[string, relayConnRequest]{},
 	}
 
 	sendProofStream, err := relayClient.SendProof(ctx)
@@ -205,11 +205,11 @@ func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 			continue
 		}
 
-		if task.(relayConnRequest).response == nil {
+		if task.response == nil {
 			continue
 		}
 
-		task.(relayConnRequest).response <- out
+		task.response <- out
 	}
 }
 

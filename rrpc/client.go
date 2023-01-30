@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/jonathanMweiss/resmix/internal/syncmap"
+	"github.com/jonathanMweiss/resmix/internal/msync"
 	"math"
 	"sync"
 	"time"
@@ -28,7 +28,7 @@ type client struct {
 	encoderDecoder ecc.VerifyingEncoderDecoder
 	verifier       *MerkleCertVerifier
 
-	waitingTasks syncmap.SyncMap[string, *rqstWithErr[*Request]] // [uuid, chan Response of type?]
+	waitingTasks msync.Map[string, *rqstWithErr] // [uuid, chan Response of type?]
 
 	wg         sync.WaitGroup
 	bufferpool sync.Pool
@@ -36,24 +36,24 @@ type client struct {
 	identifier []byte
 	serverID   []byte
 
-	directCallSendChannel chan *rqstWithErr[*Request]
+	directCallSendChannel chan *rqstWithErr
 
 	context.Context
 	context.CancelFunc
 }
 
 // implementing GCable interface
-type rqstWithErr[T interface{}] struct {
-	In        T
+type rqstWithErr struct {
+	In        *Request
 	Err       chan error
 	StartTime time.Time
 }
 
-func (r *rqstWithErr[T]) GetStartTime() time.Time {
+func (r *rqstWithErr) GetStartTime() time.Time {
 	return r.StartTime
 }
 
-func (rqst *rqstWithErr[T]) PrepareForDeletion() {
+func (rqst *rqstWithErr) PrepareForDeletion() {
 	rqst.Err <- status.Error(codes.Canceled, "response timed out")
 }
 
@@ -151,15 +151,10 @@ func (c *client) setServerStream() error {
 
 // VerifyAndDispatch will verify the response, any critical error will result in closing of the stream
 func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
-	v, ok := c.waitingTasks.LoadAndDelete(msg.Note.Calluuid)
+	reqst, ok := c.waitingTasks.LoadAndDelete(msg.Note.Calluuid)
 	if !ok {
 		fmt.Println("client::VerifyAndDispatch: could not find task!")
 		return nil
-	}
-
-	reqst, ok := v.(*rqstWithErr[*Request])
-	if !ok {
-		panic("client::VerifyAndDispatch: could not cast task!")
 	}
 
 	var err error
@@ -210,11 +205,11 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 		secretKey:             key,
 		encoderDecoder:        encoderDecoder,
 		verifier:              NewVerifier(1),
-		waitingTasks:          syncmap.SyncMap[string, *rqstWithErr[*Request]]{},
+		waitingTasks:          msync.Map[string, *rqstWithErr]{},
 		wg:                    sync.WaitGroup{},
 		identifier:            key.Public(),
 		serverID:              serverPk,
-		directCallSendChannel: make(chan *rqstWithErr[*Request], 10),
+		directCallSendChannel: make(chan *rqstWithErr, 10),
 		Context:               ctx,
 		CancelFunc:            cancel,
 
@@ -232,7 +227,7 @@ func (c *client) DirectCall(req *Request) error {
 		return err
 	}
 
-	reqst := &rqstWithErr[*Request]{
+	reqst := &rqstWithErr{
 		In:        req,
 		Err:       make(chan error),
 		StartTime: time.Now(),
@@ -249,7 +244,7 @@ func (c *client) AsyncDirectCall(req *Request) (chan<- error, error) {
 		return nil, err
 	}
 
-	reqst := &rqstWithErr[*Request]{
+	reqst := &rqstWithErr{
 		In:        req,
 		Err:       make(chan error),
 		StartTime: time.Now(),
