@@ -75,7 +75,7 @@ func newClientTestSetup(t require.TestingT, srvc Services) clientTestSetup {
 			Publickey: pk,
 		})
 	}
-	netdata := NewNetData(netconf)
+	netdata := NewNetworkData(netconf)
 
 	networks := make([]Coordinator, 0, len(netdata.Servers()))
 	srvrs := make([]RrpcServer, 0, len(netdata.Servers()))
