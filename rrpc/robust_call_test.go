@@ -75,7 +75,7 @@ func TestRobustCallTimeouts(t *testing.T) {
 	require.Equal(t, st.Code(), codes.Canceled)
 }
 
-func TestRobustCallFail(t *testing.T) {
+func TestRobustCallFailTimeout(t *testing.T) {
 	var errorForTest = fmt.Errorf("error for test")
 	var lateReply = Services{
 		"testService": {
@@ -112,6 +112,46 @@ func TestRobustCallFail(t *testing.T) {
 	require.Error(t, err_)
 
 	require.True(t, strings.Contains(err_.Error(), errorForTest.Error()))
+}
+
+func TestRobustCallFailWithSpecificCode(t *testing.T) {
+	var errorForTest = status.Error(codes.DataLoss, "error for test")
+	var lateReply = Services{
+		"testService": {
+			server: (new)(bool),
+			methodDescriptors: map[string]*MethodDesc{
+				"testMethod": {
+					Name: "testMethod",
+					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+						return _minimal_service_reply, errorForTest
+					},
+				},
+			},
+		},
+	}
+
+	setup := newClientTestSetup(t, lateReply)
+
+	setup.start(t)
+	defer setup.releaseResources()
+
+	// Ensuring the network dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	defer c.Close()
+
+	req := &Request{
+		Args:    nil,
+		Reply:   new(string),
+		Method:  "testService/testMethod",
+		Uuid:    "1234",
+		Context: context.Background(),
+	}
+
+	err_ := c.RobustCall(req)
+	require.Error(t, err_)
+
+	require.True(t, strings.Contains(err_.Error(), errorForTest.Error()))
+	require.Equal(t, codes.DataLoss, status.Code(err_))
 }
 
 func BenchmarkRobustCall(b *testing.B) {

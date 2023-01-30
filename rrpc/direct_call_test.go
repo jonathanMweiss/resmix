@@ -3,12 +3,13 @@ package rrpc
 import (
 	"context"
 	"fmt"
+	"github.com/jonathanMweiss/resmix/internal/crypto"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net"
 	"strconv"
 	"testing"
-
-	"github.com/jonathanMweiss/resmix/internal/crypto"
-	"github.com/stretchr/testify/require"
 )
 
 const _serverport = "600"
@@ -128,4 +129,67 @@ func TestDirectCall(t *testing.T) {
 		require.Equal(t, _minimal_service_reply, *(req.Reply.(*string)))
 	}
 
+}
+
+func TestDirectCallErrors(t *testing.T) {
+	var testerr = status.Error(codes.DataLoss, "test error")
+	var service Services = Services{
+		"testService": {
+			server: (new)(bool),
+			methodDescriptors: map[string]*MethodDesc{
+				"testMethod": {
+					Name: "testMethod",
+					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+						return _minimal_service_reply, testerr
+					},
+				},
+			},
+		},
+	}
+
+	setup := newClientTestSetup(t, service)
+
+	setup.start(t)
+	defer setup.releaseResources()
+
+	// Ensuring the network dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	defer c.Close()
+
+	req := &Request{
+		Args:    nil,
+		Reply:   new(string),
+		Method:  "testService/testMethod",
+		Uuid:    "1234",
+		Context: context.Background(),
+	}
+
+	e := c.DirectCall(req)
+	require.Error(t, e)
+	require.Equal(t, codes.DataLoss, status.Code(e))
+}
+
+func BenchmarkDirectCall(b *testing.B) {
+	setup := newClientTestSetup(b, simplereply)
+
+	setup.start(b)
+	defer setup.releaseResources()
+
+	// Ensuring the network dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+
+	req := &Request{
+		Args:    nil,
+		Reply:   new(string),
+		Method:  "testService/testMethod",
+		Uuid:    "0",
+		Context: context.Background(),
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req.Uuid = strconv.Itoa(i)
+		require.NoError(b, c.DirectCall(req))
+	}
+	b.StopTimer()
 }
