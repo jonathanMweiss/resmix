@@ -203,23 +203,15 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 }
 
 func (c *client) DirectCall(req *Request) error {
-	if err := req.pack(); err != nil {
+	chn, err := c.AsyncDirectCall(req)
+	if err != nil {
 		return err
 	}
 
-	reqst := &rqstWithErr{
-		In:        req,
-		Err:       make(chan error),
-		StartTime: time.Now(),
-	}
-
-	c.waitingTasks.Store(req.Uuid, reqst)
-	c.directCallSendChannel <- reqst
-
-	return <-reqst.Err
+	return <-chn
 }
 
-func (c *client) AsyncDirectCall(req *Request) (chan<- error, error) {
+func (c *client) AsyncDirectCall(req *Request) (<-chan error, error) {
 	if err := req.pack(); err != nil {
 		return nil, err
 	}

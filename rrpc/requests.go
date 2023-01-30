@@ -21,22 +21,8 @@ type Request struct {
 }
 
 func (r *Request) pack() error {
-	if r.marshaledArgs != nil {
-		return nil
-	}
-
-	if r.IsCancelled() {
-		return context.Canceled
-	}
-
-	m, err := codec.Marshal(r.Args)
-	if err != nil {
-		return err
-	}
-
-	r.marshaledArgs = m
-
-	return nil
+	bf := bytes.NewBuffer(make([]byte, 0, 1024))
+	return r.packWithBuffer(bf)
 }
 
 func (r *Request) unpack() error {
@@ -82,13 +68,4 @@ func (r *Request) IsCancelled() bool {
 	default:
 		return false
 	}
-}
-
-// if canceled or unpacked - done.
-func (r *Request) isDone() bool {
-	if r.IsCancelled() {
-		return true
-	}
-
-	return r.isUnpacked
 }
