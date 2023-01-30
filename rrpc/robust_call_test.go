@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -111,4 +112,30 @@ func TestRobustCallFail(t *testing.T) {
 	require.Error(t, err_)
 
 	require.True(t, strings.Contains(err_.Error(), errorForTest.Error()))
+}
+
+func BenchmarkRobustCall(b *testing.B) {
+	setup := newClientTestSetup(b, simplereply)
+
+	setup.start(b)
+	defer setup.releaseResources()
+
+	// Ensuring the network dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+
+	req := &Request{
+		Args:    nil,
+		Reply:   new(string),
+		Method:  "testService/testMethod",
+		Uuid:    "0",
+		Context: context.Background(),
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req.Uuid = strconv.Itoa(i)
+		require.NoError(b, c.RobustCall(req))
+	}
+	b.StopTimer()
+	time.Sleep(time.Second * 2)
 }

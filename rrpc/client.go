@@ -315,6 +315,12 @@ func (c *client) reconstruct(parcels []*CallStreamResponse) ([]byte, error) {
 		return nil, status.Error(codes.DataLoss, "no parcels received")
 	}
 
+	if len(parcels) == 0 {
+		panic("no parcels received")
+	}
+	if parcels[0] == nil {
+		panic("What?!")
+	}
 	msgSize := binary.LittleEndian.Uint32(parcels[0].Response.MessageLength)
 
 	shards := c.network.getErrorCorrectionCode().NewShards()

@@ -182,17 +182,16 @@ func (n *network) RobustRequest(ctx context.Context, requests []*RelayRequest) (
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case r := <-responseChan:
-			if r.RelayStreamError != nil {
+			if tmperr := n.validateRrpcResponse(r); tmperr != nil {
 				totalErrors += 1
-				err = status.ErrorProto(r.RelayStreamError)
 
-			} else if r.Response.RpcError != nil {
-				totalErrors += 1
-				err = status.ErrorProto(r.Response.RpcError)
-			}
+				if totalErrors > n.MaxErrors() {
+					err = tmperr
 
-			if totalErrors > n.MaxErrors() {
-				return nil, err
+					return nil, err
+				}
+
+				continue
 			}
 
 			responses = append(responses, r.Response)
@@ -203,6 +202,23 @@ func (n *network) RobustRequest(ctx context.Context, requests []*RelayRequest) (
 		}
 
 	}
+}
+
+func (n *network) validateRrpcResponse(r relayResponse) error {
+	switch {
+	case r.RelayStreamError != nil:
+		return status.ErrorProto(r.RelayStreamError)
+
+	case r.Response == nil:
+		return status.Error(codes.Internal, "empty response")
+
+	case r.Response.RpcError != nil:
+		return status.ErrorProto(r.Response.RpcError)
+
+	default:
+		return nil
+	}
+
 }
 
 func (n *network) CancelRequest(uuid string) {

@@ -35,7 +35,7 @@ type clientTestSetup struct {
 	networks   []Network
 }
 
-func (c *clientTestSetup) start(t *testing.T) {
+func (c *clientTestSetup) start(t require.TestingT) {
 	for _, n := range c.networks {
 		require.NoError(t, n.Dial())
 	}
@@ -54,7 +54,8 @@ func (c *clientTestSetup) releaseResources() {
 	fmt.Println("closed servers")
 }
 
-func newClientTestSetup(t *testing.T, srvc Services) clientTestSetup {
+func newClientTestSetup(t require.TestingT, srvc Services) clientTestSetup {
+
 	almostAddr := "localhost:" + _serverport
 	serverAddr := "localhost:" + _serverport + "10"
 
