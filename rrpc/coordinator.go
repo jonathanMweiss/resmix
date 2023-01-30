@@ -59,6 +59,67 @@ type coordinator struct {
 	ecc    ecc.VerifyingEncoderDecoder
 }
 
+// NewCoordinator creates a Coordinator that is tied to a speicific node. cannot reuse for different nodes on same machine!
+func NewCoordinator(netdata NetworkData, skey crypto.PrivateKey) ServerCoordinator {
+	maxErasures := netdata.MaxErrors()
+	numDataShards := len(netdata.Servers()) - maxErasures
+
+	ecc_, err := ecc.NewRSEncoderDecoder(numDataShards, maxErasures)
+	if err != nil {
+		panic(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	v := NewVerifier(runtime.NumCPU())
+	myAddress := netdata.GetHostname(skey.Public())
+	ctx = AddIPToContext(ctx, myAddress)
+
+	return &coordinator{
+		NetworkData: netdata,
+		skey:        skey,
+
+		relayConns:  make(map[string]*RelayConn, len(netdata.Servers())),
+		serverConns: make(map[string]*ServerConn, len(netdata.Servers())),
+
+		MerkleCertVerifier: v,
+		ecc:                ecc_,
+
+		ctx:    ctx,
+		cancel: cancel,
+
+		myAddress: myAddress,
+
+		callResponseChan: make(chan *CallStreamResponse, 100),
+	}
+}
+
+// functionality:
+
+func (n *coordinator) Close() error {
+	defer n.MerkleCertVerifier.Stop()
+	defer n.ecc.Stop()
+
+	close(n.callResponseChan)
+
+	n.cancel()
+
+	var err error
+	for _, conn := range n.relayConns {
+		if err = conn.Close(); err != nil {
+			fmt.Println("error closing relay connection:", err)
+		}
+	}
+
+	for _, conn := range n.serverConns {
+		if err = conn.Close(); err != nil {
+			fmt.Println("error closing server connection:", err)
+		}
+	}
+
+	return err
+}
+
 func (n *coordinator) getErrorCorrectionCode() ecc.VerifyingEncoderDecoder {
 	return n.ecc
 }
@@ -95,6 +156,7 @@ func (n *coordinator) RobustRequest(ctx context.Context, requests []*RelayReques
 		return nil, fmt.Errorf("bad request, number of requests differs from number of relays")
 	}
 
+	serverID := requests[0].Parcel.Note.ReceiverID
 	responseChan := make(chan relayResponse, len(requests))
 	srvrs := n.Servers()
 
@@ -122,7 +184,7 @@ func (n *coordinator) RobustRequest(ctx context.Context, requests []*RelayReques
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case r := <-responseChan:
-			if tmperr := n.validateRrpcResponse(r); tmperr != nil {
+			if tmperr := n.validateRrpcResponse(serverID, r); tmperr != nil {
 				totalErrors += 1
 
 				if totalErrors > n.MaxErrors() {
@@ -144,7 +206,7 @@ func (n *coordinator) RobustRequest(ctx context.Context, requests []*RelayReques
 	}
 }
 
-func (n *coordinator) validateRrpcResponse(r relayResponse) error {
+func (n *coordinator) validateRrpcResponse(serverId crypto.PublicKey, r relayResponse) error {
 	switch {
 	case r.RelayStreamError != nil:
 		return status.ErrorProto(r.RelayStreamError)
@@ -155,10 +217,9 @@ func (n *coordinator) validateRrpcResponse(r relayResponse) error {
 	case r.Response.RpcError != nil:
 		return status.ErrorProto(r.Response.RpcError)
 
-	default:
-		return nil
 	}
 
+	return n.MerkleCertVerifier.Verify(serverId, r.Response)
 }
 
 func (n *coordinator) CancelRequest(uuid string) {
@@ -175,65 +236,6 @@ func (n *coordinator) PublishProof(p *Proof) {
 
 func (n *coordinator) GetRelayConn(hostname string) *RelayConn {
 	return n.relayConns[hostname]
-}
-
-// NewCoordinator creates a Coordinator that is tied to a speicific node. cannot reuse for different nodes on same machine!
-func NewCoordinator(netdata NetworkData, skey crypto.PrivateKey) ServerCoordinator {
-	maxErasures := netdata.MaxErrors()
-	numDataShards := len(netdata.Servers()) - maxErasures
-
-	ecc_, err := ecc.NewRSEncoderDecoder(numDataShards, maxErasures)
-	if err != nil {
-		panic(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	v := NewVerifier(runtime.NumCPU())
-	myAddress := netdata.GetHostname(skey.Public())
-	ctx = AddIPToContext(ctx, myAddress)
-
-	return &coordinator{
-		NetworkData: netdata,
-		skey:        skey,
-
-		relayConns:  make(map[string]*RelayConn, len(netdata.Servers())),
-		serverConns: make(map[string]*ServerConn, len(netdata.Servers())),
-
-		MerkleCertVerifier: v,
-		ecc:                ecc_,
-
-		ctx:    ctx,
-		cancel: cancel,
-
-		myAddress: myAddress,
-
-		callResponseChan: make(chan *CallStreamResponse, 100),
-	}
-}
-
-func (n *coordinator) Close() error {
-	defer n.MerkleCertVerifier.Stop()
-	defer n.ecc.Stop()
-
-	close(n.callResponseChan)
-
-	n.cancel()
-
-	var err error
-	for _, conn := range n.relayConns {
-		if err = conn.Close(); err != nil {
-			fmt.Println("error closing relay connection:", err)
-		}
-	}
-
-	for _, conn := range n.serverConns {
-		if err = conn.Close(); err != nil {
-			fmt.Println("error closing server connection:", err)
-		}
-	}
-
-	return err
 }
 
 func (n *coordinator) Dial() error {

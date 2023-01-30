@@ -150,7 +150,7 @@ func (s *CallStreamResponse) SetMerkleCert(root crypto.Digest, proof []crypto.Di
 }
 
 func (s *CallStreamResponse) ToBeHashed(w crypto.BWriter) (crypto.HashID, []byte) {
-	return prepareForHashing(s, w)
+	return prepareForHashing(s.Note, w)
 }
 
 func (s *CallStreamResponse) popCert() *MerkleCertificate {
