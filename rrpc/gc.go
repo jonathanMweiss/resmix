@@ -31,8 +31,6 @@ func cleanmapAccordingToTTL[U comparable, T any](mp *msync.Map[U, T], ttl time.D
 	})
 }
 
-const ttl = time.Second * 5
-
 func foreverCleanup[U comparable, T any](ctx context.Context, mp *msync.Map[U, T]) {
 	dropFromMap := time.NewTicker(ttl)
 	for {

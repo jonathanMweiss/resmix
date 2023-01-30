@@ -14,7 +14,7 @@ import (
 const _serverport = "600"
 const _minimal_service_reply = "minimal service reply"
 
-var srvc Services = Services{
+var simplereply Services = Services{
 	"testService": {
 		server: (new)(bool),
 		methodDescriptors: map[string]*MethodDesc{
@@ -54,7 +54,7 @@ func (c *clientTestSetup) releaseResources() {
 	fmt.Println("closed servers")
 }
 
-func newClientTestSetup(t *testing.T) clientTestSetup {
+func newClientTestSetup(t *testing.T, srvc Services) clientTestSetup {
 	almostAddr := "localhost:" + _serverport
 	serverAddr := "localhost:" + _serverport + "10"
 
@@ -106,7 +106,7 @@ func newClientTestSetup(t *testing.T) clientTestSetup {
 }
 
 func TestDirectCall(t *testing.T) {
-	setup := newClientTestSetup(t)
+	setup := newClientTestSetup(t, simplereply)
 
 	setup.start(t)
 	defer setup.releaseResources()
