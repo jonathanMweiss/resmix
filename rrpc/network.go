@@ -150,7 +150,7 @@ func (n *network) getRelayGroup() RelayGroup {
 	return n
 }
 
-func (n *network) RobustRequest(context context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
+func (n *network) RobustRequest(ctx context.Context, requests []*RelayRequest) ([]*CallStreamResponse, error) {
 	if len(requests) != len(n.relayConns) {
 		return nil, fmt.Errorf("bad request, number of requests differs from number of relays")
 	}
@@ -175,36 +175,34 @@ func (n *network) RobustRequest(context context.Context, requests []*RelayReques
 
 	var err error
 
-	for r := range responseChan {
-
+	for {
 		select {
-		case <-context.Done():
-			return nil, context.Err()
+		case <-n.ctx.Done():
+			return nil, n.ctx.Err()
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case r := <-responseChan:
+			if r.RelayStreamError != nil {
+				totalErrors += 1
+				err = status.ErrorProto(r.RelayStreamError)
 
-		default:
+			} else if r.Response.RpcError != nil {
+				totalErrors += 1
+				err = status.ErrorProto(r.Response.RpcError)
+			}
+
+			if totalErrors > n.MaxErrors() {
+				return nil, err
+			}
+
+			responses = append(responses, r.Response)
+
+			if len(responses) >= n.MinimalRelayedParcels() {
+				return responses, nil
+			}
 		}
 
-		if r.RelayStreamError != nil {
-			totalErrors += 1
-			err = status.ErrorProto(r.RelayStreamError)
-		} else if r.Response.RpcError != nil {
-			totalErrors += 1
-			err = status.ErrorProto(r.Response.RpcError)
-		}
-
-		if totalErrors > n.MaxErrors() {
-
-			return nil, err
-		}
-
-		responses = append(responses, r.Response)
-
-		if len(responses) >= n.MinimalRelayedParcels() {
-			return responses, nil
-		}
 	}
-
-	panic("should never arrive here")
 }
 
 func (n *network) CancelRequest(uuid string) {
