@@ -3,6 +3,7 @@ package rrpc
 import (
 	"bytes"
 	"errors"
+	"github.com/jonathanMweiss/resmix/internal/syncmap"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,12 +44,12 @@ type MerkleCertVerifier struct {
 	// used once the object is to be recycled.
 	done    chan bool
 	once    sync.Once
-	taskMap sync.Map
+	taskMap syncmap.SyncMap[string, merklecerttask]
 }
 
 func NewVerifier(numWorkers int) *MerkleCertVerifier {
 	verifier := &MerkleCertVerifier{
-		taskMap: sync.Map{},
+		taskMap: syncmap.SyncMap[string, merklecerttask]{},
 		tasks:   make(chan merklecerttask, numWorkers*8),
 		done:    make(chan bool),
 	}

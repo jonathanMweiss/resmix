@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/jonathanMweiss/resmix/internal/syncmap"
 	"math"
 	"sync"
 	"time"
@@ -27,7 +28,7 @@ type client struct {
 	encoderDecoder ecc.VerifyingEncoderDecoder
 	verifier       *MerkleCertVerifier
 
-	waitingTasks sync.Map // [uuid, chan Response of type?]
+	waitingTasks syncmap.SyncMap[string, *rqstWithErr[*Request]] // [uuid, chan Response of type?]
 
 	wg         sync.WaitGroup
 	bufferpool sync.Pool
@@ -209,7 +210,7 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 		secretKey:             key,
 		encoderDecoder:        encoderDecoder,
 		verifier:              NewVerifier(1),
-		waitingTasks:          sync.Map{},
+		waitingTasks:          syncmap.SyncMap[string, *rqstWithErr[*Request]]{},
 		wg:                    sync.WaitGroup{},
 		identifier:            key.Public(),
 		serverID:              serverPk,

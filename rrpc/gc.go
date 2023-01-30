@@ -1,7 +1,7 @@
 package rrpc
 
 import (
-	"sync"
+	"github.com/jonathanMweiss/resmix/internal/syncmap"
 	"time"
 )
 
@@ -10,11 +10,11 @@ type GCable interface {
 	PrepareForDeletion()
 }
 
-func cleanmapAccordingToTTL(mp *sync.Map, ttl time.Duration) {
-	mp.Range(func(key, value interface{}) bool {
+func cleanmapAccordingToTTL[U comparable, T any](mp *syncmap.SyncMap[U, T], ttl time.Duration) {
+	mp.Map.Range(func(key, value interface{}) bool {
 		v, ok := value.(GCable)
 		if !ok {
-			mp.Delete(key)
+			mp.Map.Delete(key)
 			return true
 		}
 
@@ -23,7 +23,7 @@ func cleanmapAccordingToTTL(mp *sync.Map, ttl time.Duration) {
 		}
 
 		v.PrepareForDeletion()
-		mp.Delete(key)
+		mp.Map.Delete(key)
 
 		return true
 	})
