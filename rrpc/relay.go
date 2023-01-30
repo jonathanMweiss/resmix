@@ -86,6 +86,7 @@ func (r *relay) relaySetup() {
 
 				rqst.respchan <- &RelayStreamResponse{
 					Response: c,
+					Uuid:     c.Note.Calluuid,
 				}
 			}
 		}
