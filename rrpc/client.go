@@ -264,9 +264,13 @@ func (c *client) RobustCall(req *Request) error {
 		return err
 	}
 
-	// TODO: reconstruct!
-	c.reconstruct(out)
-	return nil
+	payload, err := c.reconstruct(out)
+	if err != nil {
+		return err
+	}
+
+	req.marshaledReply = payload
+	return req.unpack()
 }
 
 func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
@@ -313,22 +317,24 @@ func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
 	return relayRequests, nil
 }
 
-func (c *client) reconstruct(out []*CallStreamResponse) {
-	panic("not implemented")
+func (c *client) reconstruct(parcels []*CallStreamResponse) ([]byte, error) {
 	//// safety measure.
-	//if len(parcels) <= 0 {
-	//	return nil, errNoParcels
-	//}
-	//p := parcels[0]
-	//msgSize := binary.LittleEndian.Uint32(p.MessageLength)
-	//shards := c.decoder.NewShards()
-	//for _, parcel := range parcels {
-	//	(*eccServerParcel)(parcel).PutIntoShards(shards)
-	//}
-	//
-	//data, err := c.decoder.AuthReconstruct(shards, int(msgSize))
-	//if err != nil {
-	//	return nil, fmt.Errorf("reconstruction error in client to %v:%v", c.serverAddr, err)
-	//}
-	//return data, nil
+	if len(parcels) <= 0 {
+		return nil, status.Error(codes.DataLoss, "no parcels received")
+	}
+
+	msgSize := binary.LittleEndian.Uint32(parcels[0].Response.MessageLength)
+
+	shards := c.network.getErrorCorrectionCode().NewShards()
+
+	for _, parcel := range parcels {
+		(*eccServerParcel)(parcel.Response).PutIntoShards(shards)
+	}
+
+	data, err := c.network.getErrorCorrectionCode().AuthReconstruct(shards, int(msgSize))
+	if err != nil {
+		return nil, status.Error(codes.Internal, "client: reconstructing failed: "+err.Error())
+	}
+
+	return data, nil
 }
