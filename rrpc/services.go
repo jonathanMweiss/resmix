@@ -16,6 +16,7 @@ type MethodDesc struct {
 	Handler MethodHandler
 }
 type ServiceDesc struct {
+	serverType        interface{} // the type of the service implementation
 	server            interface{} // the server for service methods
 	methodDescriptors map[string]*MethodDesc
 }

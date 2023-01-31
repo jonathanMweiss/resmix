@@ -154,6 +154,53 @@ func TestRobustCallFailWithSpecificCode(t *testing.T) {
 	require.Equal(t, codes.DataLoss, status.Code(err_))
 }
 
+func TestRobustCallWithStructService(t *testing.T) {
+	type simpleService struct {
+		message string
+	}
+
+	service := simpleService{
+		message: "testService",
+	}
+
+	services := Services{
+		"testService": {
+			serverType: (new)(simpleService),
+			server:     service,
+			methodDescriptors: map[string]*MethodDesc{
+				"testMethod": {
+					Name: "testMethod",
+					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+
+						return server.(simpleService).message, nil
+					},
+				},
+			},
+		},
+	}
+
+	setup := newClientTestSetup(t, services)
+
+	setup.start(t)
+	defer setup.releaseResources()
+
+	// Ensuring the coordinator dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	defer c.Close()
+
+	req := &Request{
+		Args:    nil,
+		Reply:   new(string),
+		Method:  "testService/testMethod",
+		Uuid:    "1234",
+		Context: context.Background(),
+	}
+
+	e := c.RobustCall(req)
+	require.NoError(t, e)
+	require.Equal(t, service.message, *(req.Reply.(*string)))
+}
+
 func BenchmarkRobustCall(b *testing.B) {
 	setup := newClientTestSetup(b, simplereply)
 
