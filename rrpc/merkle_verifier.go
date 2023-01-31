@@ -2,13 +2,13 @@ package rrpc
 
 import (
 	"bytes"
+	"context"
 	"errors"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/crypto/merklearray"
+	"github.com/jonathanMweiss/resmix/internal/msync"
+	"sync"
+	"sync/atomic"
 )
 
 type verifiable interface {
@@ -17,9 +17,7 @@ type verifiable interface {
 	pushCert(certificate *MerkleCertificate)
 }
 
-//
 // signature verification
-//
 type signatureState struct {
 	state *int64
 }
@@ -31,7 +29,8 @@ func newSigState() *signatureState {
 
 // changes the state indefinitely.
 func (t *signatureState) shouldVerifySig() bool {
-	// compare to the original value which is 0, if it okay will swap with -1 indicating now that it's no longer available for signing.
+	// compare to the original value which is 0, if it okay will swap with
+	// -1 indicating now that it's no longer available for signing.
 	return atomic.CompareAndSwapInt64(t.state, 0, -1)
 }
 
@@ -44,14 +43,21 @@ type MerkleCertVerifier struct {
 	// used once the object is to be recycled.
 	done    chan bool
 	once    sync.Once
-	taskMap sync.Map
+	taskMap msync.Map[string, merklecerttask]
+
+	context.Context
+	context.CancelFunc
 }
 
 func NewVerifier(numWorkers int) *MerkleCertVerifier {
+	ctx, cancel := context.WithCancel(context.Background())
 	verifier := &MerkleCertVerifier{
-		taskMap: sync.Map{},
-		tasks:   make(chan merklecerttask, numWorkers*8),
-		done:    make(chan bool),
+		tasks:      make(chan merklecerttask, numWorkers*8),
+		done:       make(chan bool),
+		once:       sync.Once{},
+		taskMap:    msync.Map[string, merklecerttask]{},
+		Context:    ctx,
+		CancelFunc: cancel,
 	}
 	verifier.setWorkers(numWorkers)
 	verifier.CreateCleaner()
@@ -139,7 +145,6 @@ func merkleVerificationWorker(verifier *MerkleCertVerifier) {
 		select {
 		case t := <-verifier.tasks:
 			switch v := t.(type) {
-			// TODO; instead of having a switchcase, change the v into an interface which has a func that receive a buffer..
 			case *merkleVerifyTask:
 				verifyMerkleSig(v, buffer)
 			case *merkleProofAuthTask:
@@ -163,14 +168,6 @@ func authenticateMerklePath(t *merkleProofAuthTask, w crypto.BWriter) {
 	t.responseChan <- nil
 }
 
-func (m *MerkleCertVerifier) clean() {
-	// deletes the old map. and releases the memory.
-	m.taskMap.Range(func(key, value interface{}) bool {
-		m.taskMap.Delete(key)
-		return true
-	})
-}
-
 func verifyMerkleSig(t *merkleVerifyTask, w crypto.BWriter) {
 	// broadcasting that the result is ready to anyone waiting on the channel.
 	defer close(t.ready)
@@ -189,19 +186,13 @@ func verifyMerkleSig(t *merkleVerifyTask, w crypto.BWriter) {
 
 func (m *MerkleCertVerifier) Stop() {
 	m.once.Do(func() { close(m.done) })
-	m.clean()
+	m.CancelFunc()
+	cleanmapAccordingToTTL(&m.taskMap, 0)
 }
 
 func (m *MerkleCertVerifier) CreateCleaner() {
 	go func() {
-		for {
-			select {
-			case <-m.done:
-				return
-			case <-time.After(time.Second * 5):
-				m.clean()
-			}
-		}
+		foreverCleanup(m.Context, &m.taskMap)
 	}()
 }
 
@@ -211,12 +202,16 @@ func (m *MerkleCertVerifier) setWorkers(numWorkeres int) {
 	}
 }
 
-func unpackMerkleCert(cert *MerkleCertificate) (root crypto.Digest, proof []crypto.Digest, signature []byte, leafIndex uint64) {
+func unpackMerkleCert(cert *MerkleCertificate) (
+	root crypto.Digest, proof []crypto.Digest, signature []byte, leafIndex uint64) {
 	r, path, signature, leafIndex := cert.Root, cert.Path, cert.Signature, cert.Index
 	copy(root[:], r)
+
 	proof = make([]crypto.Digest, len(path))
+
 	for i := range path {
 		copy(proof[i][:], path[i])
 	}
+
 	return
 }

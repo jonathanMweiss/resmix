@@ -3,13 +3,14 @@ package rrpc
 import (
 	"bytes"
 	"fmt"
-	"runtime"
+	"net"
 	"sync"
 
 	"github.com/jonathanMweiss/resmix/internal/codec"
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"golang.org/x/net/context"
 	status2 "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 )
@@ -17,69 +18,72 @@ import (
 type RrpcServer interface {
 	RelayServer
 	ServerServer
-}
-
-type server_signables struct {
-	MerkleCertifiable
-	signatureDone chan error
+	Serve(lis net.Listener) error
+	Stop()
 }
 
 type Server struct {
 	Services
-	NetData
-	*MerkleCertVerifier
-	signingQueue chan server_signables
-	skey         crypto.PrivateKey
+	ServerCoordinator
+
+	skey crypto.PrivateKey
+
+	collectorTasks chan *Parcel
 
 	// closing the server fields:
 	*sync.WaitGroup
-	Cancel context.CancelFunc
+	context.CancelFunc
 	context.Context
+	gsrvr *grpc.Server
+
+	streamsBack srvrStreams
+
+	bufferPool sync.Pool
+
+	*relay
 }
 
-func NewServerService(skey crypto.PrivateKey, s Services, network NetData) RrpcServer {
-	cntx, cancelf := context.WithCancel(context.Background())
-	srvr := &Server{
-		Services:           s,
-		NetData:            network,
-		MerkleCertVerifier: NewVerifier(runtime.NumCPU()),
-		signingQueue:       make(chan server_signables, 100),
-		Context:            cntx,
-		Cancel:             cancelf,
-		WaitGroup:          &sync.WaitGroup{},
-		skey:               skey,
-	}
-
-	srvr.WaitGroup.Add(1)
-	go serverSigner(srvr)
-	return srvr
-}
-
-func serverSigner(srvr *Server) {
-	func() {
-		defer srvr.WaitGroup.Done()
-		for {
-			select {
-			case <-srvr.Context.Done():
-				return
-			case signTask := <-srvr.signingQueue:
-				// TODO: batch more than one.
-				signTask.signatureDone <- merkleSign([]MerkleCertifiable{signTask}, srvr.skey)
-				close(signTask.signatureDone)
-			}
-		}
-	}()
-}
-
-func (s Server) Close() {
-	s.Cancel()
+func (s *Server) Stop() {
+	s.gsrvr.Stop()
+	s.CancelFunc()
 	s.WaitGroup.Wait()
 }
 
-// TODO
-func (s Server) CallStream(server Server_CallStreamServer) error {
-	//TODO implement me
-	panic("implement me")
+func (s *Server) Serve(lis net.Listener) error {
+	return s.gsrvr.Serve(lis)
+}
+
+func NewServerService(skey crypto.PrivateKey, s Services, network ServerCoordinator) (RrpcServer, error) {
+	cntx, cancelf := context.WithCancel(context.Background())
+	gsrvr := grpc.NewServer()
+
+	srvr := &Server{
+		Services:          s,
+		ServerCoordinator: network,
+
+		skey: skey,
+
+		WaitGroup:  &sync.WaitGroup{},
+		CancelFunc: cancelf,
+		Context:    cntx,
+		gsrvr:      gsrvr,
+
+		collectorTasks: make(chan *Parcel, 1000),
+
+		streamsBack: newStreams(network),
+
+		bufferPool: sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1024)) }},
+	}
+	srvr.PrepareRelayService()
+
+	srvr.RegIntoGrpc()
+
+	srvr.relay.relaySetup()
+
+	srvr.WaitGroup.Add(1)
+	go srvr.collector()
+
+	return srvr, nil
 }
 
 func createDecodeFunc(payload []byte) func(v interface{}) error {
@@ -89,21 +93,18 @@ func createDecodeFunc(payload []byte) func(v interface{}) error {
 }
 
 // DirectCall uses streams to represent a cheaper unary RPC.
-func (s Server) DirectCall(server Server_DirectCallServer) error {
+func (s *Server) DirectCall(server Server_DirectCallServer) error {
 	ip, err := GetPeerFromContext(server.Context())
 	if err != nil {
-		return status.Error(codes.InvalidArgument, "couldn't extract ip from incoming context: "+err.Error())
+		return status.Errorf(codes.Unauthenticated, "server::dirceCall: cannot get peer from context: %v", err)
 	}
 
-	if len(ip) == 0 {
-		return status.Error(codes.InvalidArgument, "empty ip")
-	}
-
-	clientPkey, err := s.NetData.GetPublicKey(ip)
+	clientPkey, err := s.ServerCoordinator.GetPublicKey(ip)
 	if err != nil {
-		return status.Error(codes.InvalidArgument, "rrpc.network error in stream boot: "+err.Error())
+		return status.Errorf(codes.Unauthenticated, "server::dirceCall: unknown caller: %v", err)
 	}
 
+	verifier := s.ServerCoordinator.getVerifier()
 	for {
 		request, err := server.Recv()
 		if err != nil {
@@ -126,7 +127,7 @@ func (s Server) DirectCall(server Server_DirectCallServer) error {
 			)
 		}
 
-		if err := s.Verify(request.Note.SenderID, (*senderNote)(request.Note)); err != nil {
+		if err := verifier.Verify(request.Note.SenderID, (*senderNote)(request.Note)); err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 
@@ -137,7 +138,7 @@ func (s Server) DirectCall(server Server_DirectCallServer) error {
 			return status.Error(codes.Internal, err.Error())
 		}
 
-		if err := s.signNote(request.Note); err != nil {
+		if err := merkleSign([]MerkleCertifiable{(*receiverNote)(request.Note)}, s.skey); err != nil {
 			fmt.Println("couldn't sign the note. exiting stream:", err.Error())
 			return status.Error(codes.Internal, err.Error())
 		}
@@ -159,10 +160,12 @@ func intoDirectCallResponse(serviceError error, serviceOut interface{}) (isDirec
 	if serviceError != nil {
 		return &DirectCallResponse_RpcError{errToRpcErr(serviceError)}, nil
 	}
+
 	responsePayload, err := codec.Marshal(serviceOut)
 	if err != nil {
 		return nil, err
 	}
+
 	return &DirectCallResponse_Payload{responsePayload}, nil
 }
 
@@ -175,31 +178,15 @@ func errToRpcErr(serviceError error) *status2.Status {
 	return err.Proto()
 }
 
-func (s Server) RelayStream(server Relay_RelayStreamServer) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s Server) Attest(server Relay_AttestServer) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s Server) SendProof(server Relay_SendProofServer) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s Server) signNote(note *ExchangeNote) error {
-	resp := make(chan error)
-
-	select {
-	case <-s.Context.Done():
-		return s.Context.Err()
-	case s.signingQueue <- server_signables{
-		MerkleCertifiable: (*receiverNote)(note),
-		signatureDone:     resp,
-	}:
-		return <-resp
+func (s *Server) PrepareRelayService() {
+	s.relay = &relay{
+		WaitGroup:     s.WaitGroup,
+		Context:       s.Context,
+		ServerNetwork: s.ServerCoordinator,
 	}
+}
+
+func (s *Server) RegIntoGrpc() {
+	RegisterServerServer(s.gsrvr, s)
+	RegisterRelayServer(s.gsrvr, s.relay)
 }

@@ -16,6 +16,7 @@ type MethodDesc struct {
 	Handler MethodHandler
 }
 type ServiceDesc struct {
+	serverType        interface{} // the type of the service implementation
 	server            interface{} // the server for service methods
 	methodDescriptors map[string]*MethodDesc
 }
@@ -26,12 +27,14 @@ func extractMethodInfo(name string) (*struct{ serviceName, methodName string }, 
 	if name != "" && name[0] == '/' {
 		name = name[1:]
 	}
+
 	pos := strings.LastIndex(name, "/")
 	if pos == -1 {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("method name %v could not be parsed", name))
 	}
 
 	retVal := struct{ serviceName, methodName string }{name[:pos], name[pos+1:]}
+
 	return &retVal, nil
 }
 
@@ -40,13 +43,19 @@ func (s Services) getServiceAndMethodDesc(name string) (*ServiceDesc, *MethodDes
 	if err != nil {
 		return nil, nil, err
 	}
+
 	service, svsExist := s[info.serviceName]
 	if !svsExist {
 		return nil, nil, status.Error(codes.InvalidArgument, fmt.Sprintf("service %v does not exist", info.serviceName))
 	}
+
 	methodDesc, methodExist := service.methodDescriptors[info.methodName]
 	if !methodExist {
-		return nil, nil, status.Error(codes.InvalidArgument, fmt.Sprintf("method %v in service %v does not exist", info.methodName, info.serviceName))
+		return nil, nil, status.Error(
+			codes.InvalidArgument,
+			fmt.Sprintf("method %v in service %v does not exist", info.methodName, info.serviceName),
+		)
 	}
+
 	return service, methodDesc, nil
 }

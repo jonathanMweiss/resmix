@@ -2,20 +2,20 @@ package rrpc
 
 import (
 	"context"
-	"net"
-	"sync"
-	"testing"
-	"time"
-
+	"fmt"
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"net"
+	"strconv"
+	"testing"
 )
 
-const _serverport = "5005"
+const _serverport = "600"
 const _minimal_service_reply = "minimal service reply"
 
-var srvc Services = Services{
+var simplereply Services = Services{
 	"testService": {
 		server: (new)(bool),
 		methodDescriptors: map[string]*MethodDesc{
@@ -29,51 +29,117 @@ var srvc Services = Services{
 	},
 }
 
-func TestName(t *testing.T) {
+type clientTestSetup struct {
+	sk         crypto.PrivateKey
+	serverAddr string
+	srvrs      []RrpcServer
+	networks   []Coordinator
+}
+
+func (c *clientTestSetup) start(t require.TestingT) {
+	for _, n := range c.networks {
+		require.NoError(t, n.Dial())
+	}
+}
+
+func (c *clientTestSetup) releaseResources() {
+
+	fmt.Println("closing servers")
+	for i, srvr := range c.srvrs {
+		if err := c.networks[i].Close(); err != nil {
+			panic(err)
+		}
+
+		srvr.Stop()
+	}
+	fmt.Println("closed servers")
+}
+
+func newClientTestSetup(t require.TestingT, srvc Services) clientTestSetup {
+
 	almostAddr := "localhost:" + _serverport
-	serverAddr := "localhost:" + _serverport + "1"
+	serverAddr := "localhost:" + _serverport + "10"
 
-	sk, pk, err := crypto.GenerateKeys()
-	require.NoError(t, err)
-	netdata := NewNetData(&NetworkConfig{
-		Tau: 2,
-		ServerConfigs: []ServerData{
-			{
-				Address:   almostAddr + "1",
-				Publickey: pk,
-			},
-			{
-				Address:   almostAddr + "2",
-				Publickey: pk,
-			},
-			{
-				Address:   almostAddr + "3",
-				Publickey: pk,
-			},
-		},
-	})
-	for _, s := range netdata.Servers() {
-		srvr := NewServerService(sk, srvc, netdata)
+	netconf := &NetworkConfig{
+		Tau:           2,
+		ServerConfigs: []ServerData{},
+	}
+	sks := []crypto.PrivateKey{}
+	for i := 1; i <= 3; i++ {
+		sk, pk, err := crypto.GenerateKeys()
+		require.NoError(t, err)
 
+		sks = append(sks, sk)
+		netconf.ServerConfigs = append(netconf.ServerConfigs, ServerData{
+			Address:   almostAddr + strconv.Itoa(i*10),
+			Publickey: pk,
+		})
+	}
+	netdata := NewNetworkData(netconf)
+
+	networks := make([]Coordinator, 0, len(netdata.Servers()))
+	srvrs := make([]RrpcServer, 0, len(netdata.Servers()))
+
+	for i, s := range netdata.Servers() {
 		l, err := net.Listen("tcp", s)
 		require.NoError(t, err)
 
-		gsrvr := grpc.NewServer()
-		RegisterServerServer(gsrvr, srvr)
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-		defer wg.Wait()
+		network := NewCoordinator(netdata, sks[i])
+		networks = append(networks, network)
 
-		defer gsrvr.Stop()
+		srvr, err := NewServerService(sks[i], srvc, network)
+		require.NoError(t, err)
+
+		srvrs = append(srvrs, srvr)
+
 		go func() {
-			defer wg.Done()
-			require.NoError(t, gsrvr.Serve(l))
+			if srvr.Serve(l) != nil {
+				panic("Server failed to serve")
+			}
 		}()
 	}
 
-	network, err := NewNetwork(netdata, sk)
-	require.NoError(t, err)
-	c := NewClient(sk, serverAddr, network)
+	return clientTestSetup{
+		networks:   networks,
+		sk:         sks[0],
+		serverAddr: serverAddr,
+		srvrs:      srvrs,
+	}
+}
+
+func TestDirectCallWithStructService(t *testing.T) {
+	type simpleService struct {
+		message string
+	}
+
+	service := simpleService{
+		message: "testService",
+	}
+
+	services := Services{
+		"testService": {
+			serverType: (new)(simpleService),
+			server:     service,
+			methodDescriptors: map[string]*MethodDesc{
+				"testMethod": {
+					Name: "testMethod",
+					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+
+						return server.(simpleService).message, nil
+					},
+				},
+			},
+		},
+	}
+
+	setup := newClientTestSetup(t, services)
+
+	setup.start(t)
+	defer setup.releaseResources()
+
+	// Ensuring the coordinator dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	defer c.Close()
 
 	req := &Request{
 		Args:    nil,
@@ -83,7 +149,94 @@ func TestName(t *testing.T) {
 		Context: context.Background(),
 	}
 
-	require.NoError(t, c.DirectCall(req))
-	require.Equal(t, _minimal_service_reply, *(req.Reply.(*string)))
-	time.Sleep(time.Second)
+	e := c.DirectCall(req)
+	require.NoError(t, e)
+	require.Equal(t, service.message, *(req.Reply.(*string)))
+}
+
+func TestDirectCall(t *testing.T) {
+	setup := newClientTestSetup(t, simplereply)
+
+	setup.start(t)
+	defer setup.releaseResources()
+
+	// Ensuring the coordinator dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	defer c.Close()
+	for i := 0; i < 10; i++ {
+		req := &Request{
+			Args:    nil,
+			Reply:   new(string),
+			Method:  "testService/testMethod",
+			Uuid:    "1234",
+			Context: context.Background(),
+		}
+		e := c.DirectCall(req)
+		require.NoError(t, e)
+		require.Equal(t, _minimal_service_reply, *(req.Reply.(*string)))
+	}
+
+}
+
+func TestDirectCallErrors(t *testing.T) {
+	var testerr = status.Error(codes.DataLoss, "test error")
+	var service Services = Services{
+		"testService": {
+			server: (new)(bool),
+			methodDescriptors: map[string]*MethodDesc{
+				"testMethod": {
+					Name: "testMethod",
+					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+						return _minimal_service_reply, testerr
+					},
+				},
+			},
+		},
+	}
+
+	setup := newClientTestSetup(t, service)
+
+	setup.start(t)
+	defer setup.releaseResources()
+
+	// Ensuring the coordinator dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	defer c.Close()
+
+	req := &Request{
+		Args:    nil,
+		Reply:   new(string),
+		Method:  "testService/testMethod",
+		Uuid:    "1234",
+		Context: context.Background(),
+	}
+
+	e := c.DirectCall(req)
+	require.Error(t, e)
+	require.Equal(t, codes.DataLoss, status.Code(e))
+}
+
+func BenchmarkDirectCall(b *testing.B) {
+	setup := newClientTestSetup(b, simplereply)
+
+	setup.start(b)
+	defer setup.releaseResources()
+
+	// Ensuring the coordinator dials to all relays.
+	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+
+	req := &Request{
+		Args:    nil,
+		Reply:   new(string),
+		Method:  "testService/testMethod",
+		Uuid:    "0",
+		Context: context.Background(),
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req.Uuid = strconv.Itoa(i)
+		require.NoError(b, c.DirectCall(req))
+	}
+	b.StopTimer()
 }

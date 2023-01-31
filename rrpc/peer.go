@@ -13,10 +13,12 @@ func GetPeerFromContext(ctx context.Context) (string, error) {
 	if !ok {
 		return "", status.Error(codes.InvalidArgument, "Missing caller identity")
 	}
+
 	ids, ok := md["caller"]
 	if !ok {
 		return "", status.Error(codes.InvalidArgument, "Missing caller identity")
 	}
+
 	return ids[0], nil
 }
 

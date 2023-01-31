@@ -1,16 +1,17 @@
 package rrpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/jonathanMweiss/resmix/internal/msync"
+	"google.golang.org/grpc/credentials/insecure"
 	"math"
 	"sync"
 	"time"
 
 	"github.com/jonathanMweiss/resmix/internal/crypto"
-	"github.com/jonathanMweiss/resmix/internal/ecc"
-	"github.com/jonathanMweiss/resmix/internal/freelist"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,32 +20,39 @@ import (
 // client is responsible for connecting to its main server,
 // to connect through relays, it expects to receive some object that can communicate via relays.
 type client struct {
-	myAddr         string
-	serverAddr     string
-	serverClient   ServerClient
-	network        Network
-	secretKey      crypto.PrivateKey
-	encoderDecoder ecc.VerifyingEncoderDecoder
-	verifier       *MerkleCertVerifier
+	myAddr       string
+	serverAddr   string
+	serverClient ServerClient
+	network      Coordinator
+	secretKey    crypto.PrivateKey
 
-	waitingTasks sync.Map // [uuid, chan Response of type?]
+	waitingTasks msync.Map[string, *rqstWithErr] // [uuid, chan Response of type?]
 
-	wg sync.WaitGroup
-	//verifier *MerkleCertVerifier
+	wg         sync.WaitGroup
+	bufferpool sync.Pool
 
 	identifier []byte
 	serverID   []byte
 
-	directCallSendChannel chan *rqstWithErr[*Request]
+	directCallSendChannel chan *rqstWithErr
 
 	context.Context
 	context.CancelFunc
 }
 
-type rqstWithErr[T interface{}] struct {
-	In        T
+// implementing GCable interface
+type rqstWithErr struct {
+	In        *Request
 	Err       chan error
 	StartTime time.Time
+}
+
+func (r *rqstWithErr) GetStartTime() time.Time {
+	return r.StartTime
+}
+
+func (rqst *rqstWithErr) PrepareForDeletion() {
+	rqst.Err <- status.Error(codes.Canceled, "response timed out")
 }
 
 func (c *client) Close() error {
@@ -53,7 +61,7 @@ func (c *client) Close() error {
 }
 
 func (c *client) setServerStream() error {
-	stream, err := c.serverClient.DirectCall(AddIPToContext(context.Background(), c.myAddr))
+	stream, err := c.serverClient.DirectCall(AddIPToContext(c.Context, c.myAddr))
 	if err != nil {
 		return err
 	}
@@ -63,16 +71,20 @@ func (c *client) setServerStream() error {
 		defer c.wg.Done()
 		for {
 			msg, err := stream.Recv()
+			if isEOFFromServer(err) {
+				fmt.Println("client::streamSend closing")
+				return
+			}
 			if err != nil {
 				fmt.Println("client::streamSend error: ", err.Error())
 				return
 			}
 			if err := c.VerifyAndDispatch(msg); err != nil {
 				fmt.Println("client::streamSend:: dispatch error: ", err.Error())
-				return
+				continue
 			}
 
-			c.network.PublishProof(&Proof{
+			c.network.getRelayGroup().PublishProof(&Proof{
 				ServerHostname:   c.serverAddr,
 				WorkExchangeNote: msg.Note,
 			})
@@ -82,7 +94,6 @@ func (c *client) setServerStream() error {
 	go func() {
 		defer c.wg.Done()
 		for {
-
 			select {
 			case task := <-c.directCallSendChannel:
 				rqst := &DirectCallRequest{
@@ -101,7 +112,9 @@ func (c *client) setServerStream() error {
 					task.Err <- err
 					return
 				}
+
 				if err := stream.Send(rqst); err != nil {
+					// This is a send task, no response just yet, because we should wait on response too
 					task.Err <- err
 					fmt.Println("streaming error: ", err.Error())
 					continue
@@ -116,26 +129,8 @@ func (c *client) setServerStream() error {
 
 	go func() {
 		defer c.wg.Done()
-		dropFromMap := time.NewTicker(time.Second * 5)
-		for {
-			select {
-			case <-dropFromMap.C:
-				currentTime := time.Now()
-				c.waitingTasks.Range(func(key, value interface{}) bool {
-					rqst, ok := value.(*rqstWithErr[*Request]) // .Err <- fmt.Errorf("timeout"))
-					if !ok {
-						panic("client::VerifyAndDispatch: could not cast task!")
-					}
-					if currentTime.Sub(rqst.StartTime) > time.Second*5 {
-						rqst.Err <- status.Error(codes.Canceled, "response timed out")
-						c.waitingTasks.Delete(key)
-					}
-					return true
-				})
-			case <-c.Context.Done():
-				return
-			}
-		}
+
+		foreverCleanup(c.Context, &c.waitingTasks)
 	}()
 
 	return nil
@@ -143,15 +138,10 @@ func (c *client) setServerStream() error {
 
 // VerifyAndDispatch will verify the response, any critical error will result in closing of the stream
 func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
-	v, ok := c.waitingTasks.LoadAndDelete(msg.Note.Calluuid)
+	reqst, ok := c.waitingTasks.LoadAndDelete(msg.Note.Calluuid)
 	if !ok {
 		fmt.Println("client::VerifyAndDispatch: could not find task!")
 		return nil
-	}
-
-	reqst, ok := v.(*rqstWithErr[*Request])
-	if !ok {
-		panic("client::VerifyAndDispatch: could not cast task!")
 	}
 
 	var err error
@@ -160,7 +150,7 @@ func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 		close(reqst.Err)
 	}()
 
-	err = c.verifier.Verify(c.serverID, (*receiverNote)(msg.Note))
+	err = c.network.getVerifier().Verify(c.serverID, (*receiverNote)(msg.Note))
 	if err != nil {
 		return err
 	}
@@ -176,39 +166,35 @@ func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 	return nil
 }
 
-func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *client {
+func NewClient(key crypto.PrivateKey, serverAddress string, network Coordinator) *client {
 	ownAddress := network.GetHostname(key.Public())
 	serverPk, err := network.GetPublicKey(serverAddress)
 	if err != nil {
 		panic(err)
 	}
 
-	cc, err := grpc.Dial(serverAddress, grpc.WithInsecure())
-	if err != nil {
-		panic(err)
-	}
-
-	encoderDecoder, err := network.NewErrorCorrectionCode()
+	cc, err := grpc.Dial(serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := client{
-		myAddr:                ownAddress,
-		serverAddr:            serverAddress,
-		serverClient:          NewServerClient(cc),
-		network:               network,
-		secretKey:             key,
-		encoderDecoder:        encoderDecoder,
-		verifier:              NewVerifier(1),
-		waitingTasks:          sync.Map{},
+		myAddr:       ownAddress,
+		serverAddr:   serverAddress,
+		serverClient: NewServerClient(cc),
+		network:      network,
+		secretKey:    key,
+
+		waitingTasks:          msync.Map[string, *rqstWithErr]{},
 		wg:                    sync.WaitGroup{},
 		identifier:            key.Public(),
 		serverID:              serverPk,
-		directCallSendChannel: make(chan *rqstWithErr[*Request], 10),
+		directCallSendChannel: make(chan *rqstWithErr, 10),
 		Context:               ctx,
 		CancelFunc:            cancel,
+
+		bufferpool: sync.Pool{New: func() interface{} { return new(bytes.Buffer) }},
 	}
 
 	if err := c.setServerStream(); err != nil {
@@ -218,28 +204,20 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Network) *cl
 }
 
 func (c *client) DirectCall(req *Request) error {
-	if err := req.pack(); err != nil {
+	chn, err := c.AsyncDirectCall(req)
+	if err != nil {
 		return err
 	}
 
-	reqst := &rqstWithErr[*Request]{
-		In:        req,
-		Err:       make(chan error),
-		StartTime: time.Now(),
-	}
-
-	c.waitingTasks.Store(req.Uuid, reqst)
-	c.directCallSendChannel <- reqst
-
-	return <-reqst.Err
+	return <-chn
 }
 
-func (c *client) AsyncDirectCall(req *Request) (chan<- error, error) {
+func (c *client) AsyncDirectCall(req *Request) (<-chan error, error) {
 	if err := req.pack(); err != nil {
 		return nil, err
 	}
 
-	reqst := &rqstWithErr[*Request]{
+	reqst := &rqstWithErr{
 		In:        req,
 		Err:       make(chan error),
 		StartTime: time.Now(),
@@ -262,31 +240,35 @@ func (c *client) RobustCall(req *Request) error {
 	}
 
 	// sign them
-	signables := make([]MerkleCertifiable, 0, len(robustCallRequests))
+	signables := make([]MerkleCertifiable, 0, 2*len(robustCallRequests))
 	for i := range robustCallRequests {
 		signables = append(signables, robustCallRequests[i])
+	}
+	for i := range robustCallRequests {
+		signables = append(signables, (*senderNote)(robustCallRequests[i].Parcel.Note))
 	}
 
 	if err := merkleSign(signables, c.secretKey); err != nil {
 		return err
 	}
 
-	//waitOns := make([]rqstWithErr[*RelayStreamResponse], len(robustCallRequests))
-	//for i, request := range robustCallRequests {
-	// TODO, no, all the relay conns should aanswer on the same channel that holds enough capacity for all of them.
-	// 	otherwise i'll get stuck waiting on one of them!
-	// 	so lets send all the requests at once, and return a channel for responses.
-	// BAD : waitOns[i] = c.network.RobustRequest(request, i)
+	out, err := c.network.getRelayGroup().RobustRequest(req, robustCallRequests)
+	if err != nil {
+		return err
+	}
 
-	//}
-	return nil
+	payload, err := c.reconstruct(out)
+	if err != nil {
+		return err
+	}
+
+	req.marshaledReply = payload
+	return req.unpack()
 }
 
 func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
-	bf, dn := freelist.Get()
-	defer dn()
 
-	if err := rq.packWithBuffer(bf); err != nil {
+	if err := rq.pack(); err != nil {
 		return nil, err
 	}
 
@@ -299,7 +281,7 @@ func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
 	msgLength := make([]byte, 4)
 	binary.LittleEndian.PutUint32(msgLength, uint32(len(margs)))
 
-	chunks, err := c.encoderDecoder.AuthEncode(margs)
+	chunks, err := c.network.getErrorCorrectionCode().AuthEncode(margs)
 	if err != nil {
 		return nil, fmt.Errorf("failure in encoding, client side: %v", err)
 	}
@@ -326,4 +308,32 @@ func (c *client) requestIntoRobust(rq *Request) ([]*RelayRequest, error) {
 	}
 
 	return relayRequests, nil
+}
+
+func (c *client) reconstruct(parcels []*CallStreamResponse) ([]byte, error) {
+	//// safety measure.
+	if len(parcels) <= 0 {
+		return nil, status.Error(codes.DataLoss, "no parcels received")
+	}
+
+	if len(parcels) == 0 {
+		panic("no parcels received")
+	}
+	if parcels[0] == nil {
+		panic("What?!")
+	}
+	msgSize := binary.LittleEndian.Uint32(parcels[0].Response.MessageLength)
+
+	shards := c.network.getErrorCorrectionCode().NewShards()
+
+	for _, parcel := range parcels {
+		(*eccServerParcel)(parcel.Response).PutIntoShards(shards)
+	}
+
+	data, err := c.network.getErrorCorrectionCode().AuthReconstruct(shards, int(msgSize))
+	if err != nil {
+		return nil, status.Error(codes.Internal, "client: reconstructing failed: "+err.Error())
+	}
+
+	return data, nil
 }

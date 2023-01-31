@@ -26,10 +26,10 @@ func Marshal(args interface{}) ([]byte, error) {
 	var buffer bytes.Buffer
 	enc := codecs.NewEncoder(&buffer, &codechandle)
 
-	err := enc.Encode(args)
-	if err != nil {
+	if err := enc.Encode(args); err != nil {
 		return nil, err
 	}
+
 	return buffer.Bytes(), nil
 }
 

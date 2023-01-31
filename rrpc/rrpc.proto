@@ -12,7 +12,7 @@ import "google/rpc/status.proto";
 service Relay {
   // Relay is the primary function of a relay that's used to transfer
   // arbitrary RPC call in the layer above.
-  rpc RelayStream(stream RelayStreamRequests) returns (stream RelayStreamResponse) {}
+  rpc RelayStream(stream RelayStreamRequest) returns (stream RelayStreamResponse) {}
 
   rpc Attest(stream Attestation) returns (AttestResponse) {}
 
@@ -43,10 +43,6 @@ message ExchangeNote{
   MerkleCertificate ReceiverMerkleProof = 5;
 
   string calluuid = 6;
-}
-
-message RelayStreamRequests{
-  repeated RelayStreamRequest requests = 1;
 }
 
 message RelayStreamRequest{

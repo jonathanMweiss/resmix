@@ -132,7 +132,7 @@ func (tree *Tree) Prove(idxs []uint64, w crypto.BWriter) ([]crypto.Digest, error
 	return s.hints, nil
 }
 
-var RootMismatchErr = fmt.Errorf("root mismatch")
+var ErrRootMismatch = fmt.Errorf("root mismatch")
 
 // Verify ensures that the positions in elems correspond to the hashes of their respective
 // crypto.Hashable objects in a tree with the given root hash.  The proof is expected to
@@ -174,7 +174,7 @@ func Verify(root crypto.Digest, elems map[uint64]crypto.Hashable, proof []crypto
 
 	computedroot := pl[0]
 	if computedroot.pos != 0 || computedroot.hash != root {
-		return RootMismatchErr
+		return ErrRootMismatch
 	}
 
 	return nil
