@@ -64,7 +64,9 @@ func TestGrpcServiceWorks(t *testing.T) {
 		Context: context.Background(),
 	}
 
-	e := c.DirectCall(req)
+	chn, _ := c.AsyncDirectCall(req)
+
+	e := <-chn
 	require.NoError(t, e)
 
 	msg := string(req.Reply.(*Parcel).Payload[0])

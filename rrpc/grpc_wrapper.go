@@ -18,10 +18,9 @@ func newGrpcServer(desc Services, opts ...grpc.ServerOption) *grpcServer {
 		i := 0
 		ms := make([]grpc.MethodDesc, len(serviceDesc.methodDescriptors))
 		for nm, methodDesc := range serviceDesc.methodDescriptors {
-			//for i := 0; i < len(serviceDesc.methodDescriptors); i++ {
+
 			mdesc := methodDesc
 			f := func(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
-				// todo find a better way to do this. I don't want to add another function call.
 				return mdesc.Handler(srv, ctx, dec)
 			}
 
@@ -68,13 +67,8 @@ func (g *grpcClient) AsyncDirectCall(rq *Request) (<-chan error, error) {
 	errchn := make(chan error, 1)
 
 	go func() {
-		if g.conn == nil {
-			errchn <- status.Error(codes.Internal, "nil client")
-
-			return
-		}
-
-		errchn <- g.conn.Invoke(rq.Context, rq.Method, rq.Args, rq.Reply)
+		errchn <- g.DirectCall(rq)
+		close(errchn)
 	}()
 
 	return errchn, nil
@@ -86,10 +80,10 @@ func (g *grpcClient) RobustCall(request *Request) error {
 
 func newGrpcClient(target string, opts ...grpc.DialOption) (ClientConn, error) {
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
 	c, err := grpc.Dial(target, opts...)
 	if err != nil {
 		return nil, err
-
 	}
 
 	return &grpcClient{conn: c}, nil
