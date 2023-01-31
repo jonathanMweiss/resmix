@@ -75,7 +75,7 @@ func TestRobustCallTimeouts(t *testing.T) {
 	require.Equal(t, st.Code(), codes.Canceled)
 }
 
-func TestRobustCallFailTimeout(t *testing.T) {
+func TestRobustCallErrors(t *testing.T) {
 	var errorForTest = fmt.Errorf("error for test")
 	var lateReply = Services{
 		"testService": {
