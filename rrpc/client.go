@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/jonathanMweiss/resmix/internal/msync"
+	"google.golang.org/grpc/credentials/insecure"
 	"math"
 	"sync"
 	"time"
@@ -172,7 +173,7 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Coordinator)
 		panic(err)
 	}
 
-	cc, err := grpc.Dial(serverAddress, grpc.WithInsecure())
+	cc, err := grpc.Dial(serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
 	}

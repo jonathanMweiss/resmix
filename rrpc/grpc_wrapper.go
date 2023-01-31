@@ -2,10 +2,9 @@ package rrpc
 
 import (
 	"context"
-	"fmt"
-	rrpcnet "github.com/jonathanMweiss/resmix/rrpc/grpc_wrap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -86,12 +85,10 @@ func (g *grpcClient) RobustCall(request *Request) error {
 }
 
 func newGrpcClient(target string, opts ...grpc.DialOption) (ClientConn, error) {
-	c, err1 := rrpcnet.GetGrpcClient(target, opts...)
-	if err1 != nil {
-		if err := c.Close(); err != nil {
-			return nil, fmt.Errorf("error while connecting: %v. \n couldn't close connection afterwards: %v", err1, err)
-		}
-		return nil, err1
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	c, err := grpc.Dial(target, opts...)
+	if err != nil {
+		return nil, err
 
 	}
 
