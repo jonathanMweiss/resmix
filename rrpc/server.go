@@ -22,7 +22,7 @@ type RrpcServer interface {
 	Stop()
 }
 
-type Server struct {
+type server struct {
 	Services
 	ServerCoordinator
 
@@ -43,21 +43,21 @@ type Server struct {
 	*relay
 }
 
-func (s *Server) Stop() {
+func (s *server) Stop() {
 	s.gsrvr.Stop()
 	s.CancelFunc()
 	s.WaitGroup.Wait()
 }
 
-func (s *Server) Serve(lis net.Listener) error {
+func (s *server) Serve(lis net.Listener) error {
 	return s.gsrvr.Serve(lis)
 }
 
-func NewServerService(skey crypto.PrivateKey, s Services, network ServerCoordinator) (RrpcServer, error) {
+func newServerService(skey crypto.PrivateKey, s Services, network ServerCoordinator, options ...grpc.ServerOption) (RrpcServer, error) {
 	cntx, cancelf := context.WithCancel(context.Background())
-	gsrvr := grpc.NewServer()
+	gsrvr := grpc.NewServer(options...)
 
-	srvr := &Server{
+	srvr := &server{
 		Services:          s,
 		ServerCoordinator: network,
 
@@ -93,8 +93,8 @@ func createDecodeFunc(payload []byte) func(v interface{}) error {
 }
 
 // DirectCall uses streams to represent a cheaper unary RPC.
-func (s *Server) DirectCall(server Server_DirectCallServer) error {
-	ip, err := GetPeerFromContext(server.Context())
+func (s *server) DirectCall(server Server_DirectCallServer) error {
+	ip, err := getPeerFromContext(server.Context())
 	if err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::dirceCall: cannot get peer from context: %v", err)
 	}
@@ -131,7 +131,7 @@ func (s *Server) DirectCall(server Server_DirectCallServer) error {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 
-		serviceOut, serviceError := methodDesc.Handler(svc.server, server.Context(), createDecodeFunc(request.Payload))
+		serviceOut, serviceError := methodDesc.Handler(svc.Server, server.Context(), createDecodeFunc(request.Payload))
 
 		result, err := intoDirectCallResponse(serviceError, serviceOut)
 		if err != nil {
@@ -178,7 +178,7 @@ func errToRpcErr(serviceError error) *status2.Status {
 	return err.Proto()
 }
 
-func (s *Server) PrepareRelayService() {
+func (s *server) PrepareRelayService() {
 	s.relay = &relay{
 		WaitGroup:     s.WaitGroup,
 		Context:       s.Context,
@@ -186,7 +186,7 @@ func (s *Server) PrepareRelayService() {
 	}
 }
 
-func (s *Server) RegIntoGrpc() {
+func (s *server) RegIntoGrpc() {
 	RegisterServerServer(s.gsrvr, s)
 	RegisterRelayServer(s.gsrvr, s.relay)
 }

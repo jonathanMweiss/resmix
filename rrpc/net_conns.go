@@ -46,13 +46,13 @@ func (rqst relayConnRequest) PrepareForDeletion() {
 	}
 }
 
-func NewRelayConn(ctx context.Context, address string, index int) (*RelayConn, error) {
+func newRelayConn(ctx context.Context, address string, index int) (*RelayConn, error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
 
-	relayClient := NewRelayClient(cc)
+	relayClient := newRelayClient(cc)
 
 	ctx, cancel := context.WithCancel(ctx)
 	r := &RelayConn{
@@ -250,7 +250,7 @@ func newServerConn(ctx context.Context, address string, output chan *CallStreamR
 		return nil, err
 	}
 
-	con := NewServerClient(cc)
+	con := newServerClient(cc)
 
 	connctx, cancel := context.WithCancel(ctx)
 

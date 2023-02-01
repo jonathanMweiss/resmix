@@ -1296,13 +1296,13 @@ var file_rrpc_proto_depIdxs = []int32{
 	1,  // 18: rrpc.Relay.RelayStream:input_type -> rrpc.RelayStreamRequest
 	4,  // 19: rrpc.Relay.Attest:input_type -> rrpc.Attestation
 	5,  // 20: rrpc.Relay.SendProof:input_type -> rrpc.Proofs
-	11, // 21: rrpc.Server.CallStream:input_type -> rrpc.CallStreamRequest
-	15, // 22: rrpc.Server.DirectCall:input_type -> rrpc.DirectCallRequest
+	11, // 21: rrpc.server.CallStream:input_type -> rrpc.CallStreamRequest
+	15, // 22: rrpc.server.DirectCall:input_type -> rrpc.DirectCallRequest
 	2,  // 23: rrpc.Relay.RelayStream:output_type -> rrpc.RelayStreamResponse
 	3,  // 24: rrpc.Relay.Attest:output_type -> rrpc.AttestResponse
 	7,  // 25: rrpc.Relay.SendProof:output_type -> rrpc.SendProofResponse
-	13, // 26: rrpc.Server.CallStream:output_type -> rrpc.CallStreamResponse
-	16, // 27: rrpc.Server.DirectCall:output_type -> rrpc.DirectCallResponse
+	13, // 26: rrpc.server.CallStream:output_type -> rrpc.CallStreamResponse
+	16, // 27: rrpc.server.DirectCall:output_type -> rrpc.DirectCallResponse
 	23, // [23:28] is the sub-list for method output_type
 	18, // [18:23] is the sub-list for method input_type
 	18, // [18:18] is the sub-list for extension type_name
@@ -1571,7 +1571,7 @@ type relayClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewRelayClient(cc grpc.ClientConnInterface) RelayClient {
+func newRelayClient(cc grpc.ClientConnInterface) RelayClient {
 	return &relayClient{cc}
 }
 
@@ -1807,7 +1807,7 @@ var _Relay_serviceDesc = grpc.ServiceDesc{
 	Metadata: "rrpc.proto",
 }
 
-// ServerClient is the client API for Server service.
+// ServerClient is the client API for server service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type ServerClient interface {
@@ -1823,12 +1823,12 @@ type serverClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewServerClient(cc grpc.ClientConnInterface) ServerClient {
+func newServerClient(cc grpc.ClientConnInterface) ServerClient {
 	return &serverClient{cc}
 }
 
 func (c *serverClient) CallStream(ctx context.Context, opts ...grpc.CallOption) (Server_CallStreamClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Server_serviceDesc.Streams[0], "/rrpc.Server/CallStream", opts...)
+	stream, err := c.cc.NewStream(ctx, &_Server_serviceDesc.Streams[0], "/rrpc.server/CallStream", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1859,7 +1859,7 @@ func (x *serverCallStreamClient) Recv() (*CallStreamResponse, error) {
 }
 
 func (c *serverClient) DirectCall(ctx context.Context, opts ...grpc.CallOption) (Server_DirectCallClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Server_serviceDesc.Streams[1], "/rrpc.Server/DirectCall", opts...)
+	stream, err := c.cc.NewStream(ctx, &_Server_serviceDesc.Streams[1], "/rrpc.server/DirectCall", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1889,7 +1889,7 @@ func (x *serverDirectCallClient) Recv() (*DirectCallResponse, error) {
 	return m, nil
 }
 
-// ServerServer is the server API for Server service.
+// ServerServer is the server API for server service.
 type ServerServer interface {
 	// Call is the main function of RRPC. After receiving enough
 	// parcels, the function will reconstruct the final message, and
@@ -1967,7 +1967,7 @@ func (x *serverDirectCallServer) Recv() (*DirectCallRequest, error) {
 }
 
 var _Server_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "rrpc.Server",
+	ServiceName: "rrpc.server",
 	HandlerType: (*ServerServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

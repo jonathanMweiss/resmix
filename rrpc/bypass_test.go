@@ -28,9 +28,9 @@ func TestGrpcServiceWorks(t *testing.T) {
 
 	services := Services{
 		"testService": {
-			serverType: (*grpcTestInterface)(nil),
-			server:     service,
-			methodDescriptors: map[string]*MethodDesc{
+			ServerType: (*grpcTestInterface)(nil),
+			Server:     service,
+			MethodDescriptors: map[string]*MethodDesc{
 				"testMethod": {
 					Name: "testMethod",
 					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {

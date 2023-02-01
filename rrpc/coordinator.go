@@ -73,7 +73,7 @@ func NewCoordinator(netdata NetworkData, skey crypto.PrivateKey) ServerCoordinat
 
 	v := NewVerifier(runtime.NumCPU())
 	myAddress := netdata.GetHostname(skey.Public())
-	ctx = AddIPToContext(ctx, myAddress)
+	ctx = addIPToContext(ctx, myAddress)
 
 	return &coordinator{
 		NetworkData: netdata,
@@ -240,7 +240,7 @@ func (n *coordinator) GetRelayConn(hostname string) *RelayConn {
 
 func (n *coordinator) Dial() error {
 	for index, s := range n.NetworkData.Servers() {
-		relayConn, err := NewRelayConn(n.ctx, s, index)
+		relayConn, err := newRelayConn(n.ctx, s, index)
 		if err != nil {
 			return n.Close()
 		}

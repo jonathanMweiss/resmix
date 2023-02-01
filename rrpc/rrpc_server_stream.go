@@ -40,8 +40,8 @@ func (s *srvrStreams) removeAt(index int) {
 }
 
 // CallStream is the part in the server that handles incoming rRPC parcels, forwards it to the server's collector to handle.
-func (s *Server) CallStream(stream Server_CallStreamServer) error {
-	peerIp, err := GetPeerFromContext(stream.Context())
+func (s *server) CallStream(stream Server_CallStreamServer) error {
+	peerIp, err := getPeerFromContext(stream.Context())
 	if err != nil {
 		return status.Errorf(codes.Unauthenticated, "server::callStream: cannot get peer from context: %v", err)
 	}
@@ -91,7 +91,7 @@ func (s *Server) CallStream(stream Server_CallStreamServer) error {
 	}
 }
 
-func (s *Server) validateParcel(index int, parcel *Parcel) error {
+func (s *server) validateParcel(index int, parcel *Parcel) error {
 	if int(parcel.RelayIndex) != index {
 		return status.Errorf(codes.InvalidArgument, "server: invalid relay index: %d", parcel.RelayIndex)
 	}
@@ -116,7 +116,7 @@ type rrpcTask struct {
 
 // collector reduces the incoming parcels into a task.
 // once we reach enough parcels, we can decode them and run them.
-func (s *Server) collector() {
+func (s *server) collector() {
 	defer s.WaitGroup.Done()
 
 	ttl := time.Second * 5
@@ -177,7 +177,7 @@ func (s *Server) collector() {
 	}
 }
 
-func (s *Server) getOrCreateTask(tasks map[string]*rrpcTask, parcel *Parcel) (*rrpcTask, error) {
+func (s *server) getOrCreateTask(tasks map[string]*rrpcTask, parcel *Parcel) (*rrpcTask, error) {
 	service, methodDesc, err := s.getServiceAndMethodDesc(parcel.Method)
 	if err != nil {
 		return nil, err
@@ -199,13 +199,13 @@ func (s *Server) getOrCreateTask(tasks map[string]*rrpcTask, parcel *Parcel) (*r
 	return v, nil
 }
 
-func (s *Server) runTask(v *rrpcTask) []*CallStreamResponse {
+func (s *server) runTask(v *rrpcTask) []*CallStreamResponse {
 	payload, err := s.reconstructParcels(v)
 	if err != nil {
 		return s.erroToCallStreamResponseArray(v, err)
 	}
 
-	resp, err := v.method.Handler(v.service.server, s.Context, createDecodeFunc(payload))
+	resp, err := v.method.Handler(v.service.Server, s.Context, createDecodeFunc(payload))
 	if err != nil {
 		return s.erroToCallStreamResponseArray(v, err)
 	}
@@ -218,7 +218,7 @@ func (s *Server) runTask(v *rrpcTask) []*CallStreamResponse {
 	return resps
 }
 
-func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
+func (s *server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 	if len(v.parcels) == 0 {
 		return nil, status.Error(codes.Internal, "reached reconstruction with 0 parcels")
 	}
@@ -241,7 +241,7 @@ func (s *Server) reconstructParcels(v *rrpcTask) ([]byte, error) {
 	return data, nil
 }
 
-func (s *Server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*CallStreamResponse, error) {
+func (s *server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*CallStreamResponse, error) {
 	bf := s.bufferPool.Get().(*bytes.Buffer)
 	defer s.bufferPool.Put(bf)
 
@@ -275,7 +275,7 @@ func (s *Server) prepareCallResponse(response interface{}, v *rrpcTask) ([]*Call
 	return toRelayBack, nil
 }
 
-func (s *Server) erroToCallStreamResponseArray(v *rrpcTask, err error) []*CallStreamResponse {
+func (s *server) erroToCallStreamResponseArray(v *rrpcTask, err error) []*CallStreamResponse {
 	st, ok := status.FromError(err)
 	if !ok {
 		st = status.New(codes.Unknown, err.Error())
