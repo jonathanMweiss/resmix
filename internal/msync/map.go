@@ -9,10 +9,10 @@ type Map[U comparable, T interface{}] struct {
 func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 	v, loaded := m.Map.Load(key)
 	if loaded {
-		return v.(V), ok
+		return v.(V), loaded
 	}
 
-	return value, ok
+	return value, loaded
 }
 
 func (m *Map[U, T]) Store(key U, value T) {
