@@ -17,8 +17,8 @@ const _minimal_service_reply = "minimal service reply"
 
 var simplereply Services = Services{
 	"testService": {
-		server: (new)(bool),
-		methodDescriptors: map[string]*MethodDesc{
+		Server: (new)(bool),
+		MethodDescriptors: map[string]*MethodDesc{
 			"testMethod": {
 				Name: "testMethod",
 				Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
@@ -87,14 +87,14 @@ func newClientTestSetup(t require.TestingT, srvc Services) clientTestSetup {
 		network := NewCoordinator(netdata, sks[i])
 		networks = append(networks, network)
 
-		srvr, err := NewServerService(sks[i], srvc, network)
+		srvr, err := newServerService(sks[i], srvc, network)
 		require.NoError(t, err)
 
 		srvrs = append(srvrs, srvr)
 
 		go func() {
 			if srvr.Serve(l) != nil {
-				panic("Server failed to serve")
+				panic("server failed to serve")
 			}
 		}()
 	}
@@ -118,9 +118,9 @@ func TestDirectCallWithStructService(t *testing.T) {
 
 	services := Services{
 		"testService": {
-			serverType: (new)(simpleService),
-			server:     service,
-			methodDescriptors: map[string]*MethodDesc{
+			ServerType: (new)(simpleService),
+			Server:     service,
+			MethodDescriptors: map[string]*MethodDesc{
 				"testMethod": {
 					Name: "testMethod",
 					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
@@ -138,7 +138,7 @@ func TestDirectCallWithStructService(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -161,7 +161,7 @@ func TestDirectCall(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 	for i := 0; i < 10; i++ {
 		req := &Request{
@@ -182,8 +182,8 @@ func TestDirectCallErrors(t *testing.T) {
 	var testerr = status.Error(codes.DataLoss, "test error")
 	var service Services = Services{
 		"testService": {
-			server: (new)(bool),
-			methodDescriptors: map[string]*MethodDesc{
+			Server: (new)(bool),
+			MethodDescriptors: map[string]*MethodDesc{
 				"testMethod": {
 					Name: "testMethod",
 					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
@@ -200,7 +200,7 @@ func TestDirectCallErrors(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -223,7 +223,7 @@ func BenchmarkDirectCall(b *testing.B) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 
 	req := &Request{
 		Args:    nil,

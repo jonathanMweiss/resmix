@@ -20,7 +20,7 @@ func TestRobustCall(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -37,8 +37,8 @@ func TestRobustCall(t *testing.T) {
 func TestRobustCallTimeouts(t *testing.T) {
 	var lateReply = Services{
 		"testService": {
-			server: (new)(bool),
-			methodDescriptors: map[string]*MethodDesc{
+			Server: (new)(bool),
+			MethodDescriptors: map[string]*MethodDesc{
 				"testMethod": {
 					Name: "testMethod",
 					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
@@ -56,7 +56,7 @@ func TestRobustCallTimeouts(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -79,8 +79,8 @@ func TestRobustCallErrors(t *testing.T) {
 	var errorForTest = fmt.Errorf("error for test")
 	var lateReply = Services{
 		"testService": {
-			server: (new)(bool),
-			methodDescriptors: map[string]*MethodDesc{
+			Server: (new)(bool),
+			MethodDescriptors: map[string]*MethodDesc{
 				"testMethod": {
 					Name: "testMethod",
 					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
@@ -97,7 +97,7 @@ func TestRobustCallErrors(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -118,8 +118,8 @@ func TestRobustCallFailWithSpecificCode(t *testing.T) {
 	var errorForTest = status.Error(codes.DataLoss, "error for test")
 	var lateReply = Services{
 		"testService": {
-			server: (new)(bool),
-			methodDescriptors: map[string]*MethodDesc{
+			Server: (new)(bool),
+			MethodDescriptors: map[string]*MethodDesc{
 				"testMethod": {
 					Name: "testMethod",
 					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
@@ -136,7 +136,7 @@ func TestRobustCallFailWithSpecificCode(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -165,9 +165,9 @@ func TestRobustCallWithStructService(t *testing.T) {
 
 	services := Services{
 		"testService": {
-			serverType: (new)(simpleService),
-			server:     service,
-			methodDescriptors: map[string]*MethodDesc{
+			ServerType: (new)(simpleService),
+			Server:     service,
+			MethodDescriptors: map[string]*MethodDesc{
 				"testMethod": {
 					Name: "testMethod",
 					Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
@@ -185,7 +185,7 @@ func TestRobustCallWithStructService(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -208,7 +208,7 @@ func BenchmarkRobustCall(b *testing.B) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := NewClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
 
 	req := &Request{
 		Args:    nil,

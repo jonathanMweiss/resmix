@@ -16,9 +16,9 @@ type MethodDesc struct {
 	Handler MethodHandler
 }
 type ServiceDesc struct {
-	serverType        interface{} // the type of the service implementation
-	server            interface{} // the server for service methods
-	methodDescriptors map[string]*MethodDesc
+	ServerType        interface{} // the type of the service implementation
+	Server            interface{} // the Server for service methods
+	MethodDescriptors map[string]*MethodDesc
 }
 
 type Services map[string]*ServiceDesc
@@ -49,7 +49,7 @@ func (s Services) getServiceAndMethodDesc(name string) (*ServiceDesc, *MethodDes
 		return nil, nil, status.Error(codes.InvalidArgument, fmt.Sprintf("service %v does not exist", info.serviceName))
 	}
 
-	methodDesc, methodExist := service.methodDescriptors[info.methodName]
+	methodDesc, methodExist := service.MethodDescriptors[info.methodName]
 	if !methodExist {
 		return nil, nil, status.Error(
 			codes.InvalidArgument,

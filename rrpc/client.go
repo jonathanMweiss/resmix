@@ -61,7 +61,7 @@ func (c *client) Close() error {
 }
 
 func (c *client) setServerStream() error {
-	stream, err := c.serverClient.DirectCall(AddIPToContext(c.Context, c.myAddr))
+	stream, err := c.serverClient.DirectCall(addIPToContext(c.Context, c.myAddr))
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 	return nil
 }
 
-func NewClient(key crypto.PrivateKey, serverAddress string, network Coordinator) *client {
+func newClient(key crypto.PrivateKey, serverAddress string, network Coordinator) *client {
 	ownAddress := network.GetHostname(key.Public())
 	serverPk, err := network.GetPublicKey(serverAddress)
 	if err != nil {
@@ -182,7 +182,7 @@ func NewClient(key crypto.PrivateKey, serverAddress string, network Coordinator)
 	c := client{
 		myAddr:       ownAddress,
 		serverAddr:   serverAddress,
-		serverClient: NewServerClient(cc),
+		serverClient: newServerClient(cc),
 		network:      network,
 		secretKey:    key,
 

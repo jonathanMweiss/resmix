@@ -100,7 +100,7 @@ func (r *relay) relaySetup() {
 }
 
 func (r *relay) RelayStream(server Relay_RelayStreamServer) error {
-	peer, err := GetPeerFromContext(server.Context())
+	peer, err := getPeerFromContext(server.Context())
 	if err != nil {
 		return status.Error(codes.Unauthenticated, "server: cannot get peer from context")
 

@@ -16,8 +16,8 @@ func newGrpcServer(desc Services, opts ...grpc.ServerOption) *grpcServer {
 	gsrvr := grpc.NewServer(opts...)
 	for serviceName, serviceDesc := range desc {
 		i := 0
-		ms := make([]grpc.MethodDesc, len(serviceDesc.methodDescriptors))
-		for nm, methodDesc := range serviceDesc.methodDescriptors {
+		ms := make([]grpc.MethodDesc, len(serviceDesc.MethodDescriptors))
+		for nm, methodDesc := range serviceDesc.MethodDescriptors {
 
 			mdesc := methodDesc
 			f := func(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -33,13 +33,13 @@ func newGrpcServer(desc Services, opts ...grpc.ServerOption) *grpcServer {
 
 		s := grpc.ServiceDesc{
 			ServiceName: serviceName,
-			HandlerType: serviceDesc.serverType,
+			HandlerType: serviceDesc.ServerType,
 			Methods:     ms,
 			Streams:     nil,
 			Metadata:    "",
 		}
 
-		gsrvr.RegisterService(&s, serviceDesc.server)
+		gsrvr.RegisterService(&s, serviceDesc.Server)
 	}
 
 	return &grpcServer{gsrvr}
@@ -78,7 +78,7 @@ func (g *grpcClient) RobustCall(request *Request) error {
 	return bypassDoesNotImplement
 }
 
-func newGrpcClient(target string, opts ...grpc.DialOption) (ClientConn, error) {
+func newGrpcClient(target string, opts ...grpc.DialOption) (*grpcClient, error) {
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	c, err := grpc.Dial(target, opts...)

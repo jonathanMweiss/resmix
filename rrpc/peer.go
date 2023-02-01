@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func GetPeerFromContext(ctx context.Context) (string, error) {
+func getPeerFromContext(ctx context.Context) (string, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return "", status.Error(codes.InvalidArgument, "Missing caller identity")
@@ -22,6 +22,6 @@ func GetPeerFromContext(ctx context.Context) (string, error) {
 	return ids[0], nil
 }
 
-func AddIPToContext(ctx context.Context, addr string) context.Context {
+func addIPToContext(ctx context.Context, addr string) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "caller", addr)
 }
