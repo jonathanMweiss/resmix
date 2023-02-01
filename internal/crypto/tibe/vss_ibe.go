@@ -3,8 +3,8 @@ package tibe
 import (
 	"fmt"
 	"github.com/cloudflare/circl/ecc/bls12381"
+	"github.com/jonathanMweiss/resmix/internal/msync"
 	"runtime"
-	"sync"
 )
 
 // Encrypter is the interface for encrypting messages (the master public key of an IBE scheme).
@@ -100,7 +100,7 @@ func (sk idBasedPrivateKey) Decrypt(c Cipher) ([]byte, error) {
 // 4. compute Decrypter tied to specific Ids.
 type Node struct {
 	*shareableIbeScheme
-	Shares    *sync.Map // map[string]VssShare
+	Shares    *msync.Map[string, VssShare] // map[string]VssShare
 	workQueue chan validateTask
 }
 
@@ -138,7 +138,7 @@ func NewNode(poly Poly) VssIbeNode {
 
 	return Node{
 		shareableIbeScheme: &ibe,
-		Shares:             &sync.Map{},
+		Shares:             &msync.Map[string, VssShare]{},
 		workQueue:          queue,
 	}
 }
@@ -150,14 +150,14 @@ func (t Node) Vote(otherNodeName string, id []byte) (Vote, error) {
 		return Vote{}, fmt.Errorf("no share for node %v", otherNodeName)
 	}
 
-	sk := shr.(VssShare).PolyShare.Value
+	sk := shr.PolyShare.Value
 
 	sig := g2Hash(id)
 	sig.ScalarMult(sk, sig)
 
 	return Vote{
 		ID:    id,
-		Index: shr.(VssShare).PolyShare.Index,
+		Index: shr.PolyShare.Index,
 		Sig:   sig,
 	}, nil
 }
@@ -179,7 +179,7 @@ func (t Node) ReconstructDecrypter(nodeName string, votes []Vote) (Decrypter, er
 	}
 	// should verify each vote. (this is why one would need the exPoly.
 
-	expoly := shr.(VssShare).ExponentPoly
+	expoly := shr.ExponentPoly
 	resps := make([]chan error, len(votes))
 
 	for i, vote := range votes {
