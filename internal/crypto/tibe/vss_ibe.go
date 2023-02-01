@@ -28,10 +28,16 @@ type Master interface {
 
 // VssIbeNode is a node in the VSS IBE scheme. Can receive shares from other Ibe nodes, and reconstruct
 // Decrypter for specific shares.
+// NOTE: This is a POC, as a result, we don't run a full VSS, and assume the shares are valid.
+// VSS can be done using the exPoly of each Share. Only need to verify all servers received the same exPoly.
 type VssIbeNode interface {
 	Master
-	// Vote is a vote for a specific ID for a specific VSS share of some other node.
+	// Vote generates the part of a secret key using the VssShare this Node received.
+	// collecting enough votes will allow to reconstruct the secret key: H(id)^{sum(votes)} = H(ID)^P(0) where P is
+	// the polynoimial of otherNodeName.
 	Vote(otherNodeName string, id []byte) (Vote, error)
+	ValidateVote(otherNodeName string, v Vote) error
+
 	ReceiveShare(otherNodeName string, shr VssShare)
 	ReconstructDecrypter(otherNodeName string, votes []Vote) (Decrypter, error)
 }
@@ -119,11 +125,16 @@ type validateTask struct {
 // NewNode is the constructor for a VssIbeNode.
 func NewNode(poly Poly) VssIbeNode {
 	ibe := newShareableIbeScheme(poly)
-	queue := make(chan validateTask, runtime.NumCPU())
+
+	nd := Node{
+		shareableIbeScheme: &ibe,
+		Shares:             &msync.Map[string, VssShare]{},
+		workQueue:          make(chan validateTask, runtime.NumCPU()),
+	}
 
 	for i := 0; i < runtime.NumCPU(); i++ {
 		go func() {
-			for tsk := range queue {
+			for tsk := range nd.workQueue {
 				vote := tsk.Vote
 				publicShare := tsk.ExponentPoly.GetPublicShare(uint64(vote.Index))
 
@@ -136,11 +147,7 @@ func NewNode(poly Poly) VssIbeNode {
 		}()
 	}
 
-	return Node{
-		shareableIbeScheme: &ibe,
-		Shares:             &msync.Map[string, VssShare]{},
-		workQueue:          queue,
-	}
+	return nd
 }
 
 // Vote is the proper to share a part of an Decrypter.
@@ -165,6 +172,24 @@ func (t Node) Vote(otherNodeName string, id []byte) (Vote, error) {
 // ReceiveShare assumes trusted content.
 func (t Node) ReceiveShare(otherNodeName string, shr VssShare) {
 	t.Shares.Store(otherNodeName, shr)
+}
+
+func (t Node) ValidateVote(otherNodeName string, v Vote) error {
+	shr, ok := t.Shares.Load(otherNodeName)
+	if !ok {
+		return fmt.Errorf("no share for node %v", otherNodeName)
+	}
+	// should verify each vote. (this is why one would need the exPoly.
+
+	expoly := shr.ExponentPoly
+	rsp := make(chan error, 1)
+	t.workQueue <- validateTask{
+		Vote:         &v,
+		ExponentPoly: expoly,
+		response:     rsp,
+	}
+
+	return <-rsp
 }
 
 // ReconstructDecrypter receives a specific node name and a set of votes to reconstruct the Decrypter.
