@@ -161,6 +161,30 @@ func TestExponentPoly(t *testing.T) {
 	wg.Wait()
 }
 
+func TestMarshalUnmarshalPoly(t *testing.T) {
+	p1 := NewRandomPoly(10)
+	mrshalled, err := p1.Marshal()
+	require.NoError(t, err)
+
+	p2 := &Poly{}
+	require.NoError(t, p2.SetBytes(mrshalled))
+
+	require.True(t, p1.Equal(p2))
+}
+
+func TestMarshalUnmarshalShare(t *testing.T) {
+	p1 := NewRandomPoly(10)
+	shr := p1.CreateShares(1)[0]
+	mrshalled, err := shr.Marshal()
+	require.NoError(t, err)
+
+	shr2 := &PolyShare{}
+	require.NoError(t, shr2.SetBytes(mrshalled))
+
+	require.Equal(t, shr.Index, shr2.Index)
+	require.True(t, shr.Value.IsEqual(shr2.Value) == 1)
+}
+
 func BenchmarkExponentPoly_GetPublicShare(b *testing.B) {
 	p := NewRandomPoly(50)
 	exp := p.GetExponentPoly()
