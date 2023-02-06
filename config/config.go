@@ -22,9 +22,10 @@ func CreateConfigs(addresses []string, polyDegree int) []*ServerConfig {
 			SecretDKGShare: bts,
 			DKGPublicKeys:  dkgBytePkeys,
 			IBEConfigs: &IBEConfigs{
-				VSSPolynomial:              nil,
-				VSSExponentPolynomials:     map[string][]byte{},
-				AddressOfNodeToSecretShare: map[string][]byte{},
+				VSSPolynomial:                   nil,
+				VSSExponentPolynomials:          map[string][]byte{},
+				AddressOfNodeToSecretShare:      map[string][]byte{},
+				AddressOfNodeToMasterPublicKeys: map[string][]byte{},
 			},
 		}
 	}
@@ -35,19 +36,24 @@ func CreateConfigs(addresses []string, polyDegree int) []*ServerConfig {
 	for i := range serverConfigs {
 		serverConfigs[i].IBEConfigs.VSSPolynomial = mPolynomials[i]
 
-		shrs, expoly := tibe.NewNode(polys[i]).VssShares(len(serverConfigs))
+		shrs, err := tibe.NewNode(polys[i]).VssShares(len(serverConfigs))
+		if err != nil {
+			panic(err)
+		}
 
-		expolyMrshl := expoly.Marshal()
+		expolyMrshl := shrs[0].ExponentPoly.Marshal()
 
 		for j := range serverConfigs {
 			serverConfigs[j].IBEConfigs.VSSExponentPolynomials[serverConfigs[i].Hostname] = expolyMrshl
 
-			bts, err := shrs[j].Marshal()
+			bts, err := shrs[j].PolyShare.Marshal()
 			if err != nil {
 				panic(err)
 			}
 
 			serverConfigs[j].IBEConfigs.AddressOfNodeToSecretShare[serverConfigs[i].Hostname] = bts
+
+			serverConfigs[j].IBEConfigs.AddressOfNodeToMasterPublicKeys[serverConfigs[i].Hostname] = shrs[j].MasterPublicKey.Bytes()
 		}
 	}
 
@@ -65,7 +71,7 @@ func vsspolynomialsSetup(numPolynomials int, polyDegree int) ([]tibe.Poly, [][]b
 			panic(err)
 		}
 
-		mPolynomials = append(mPolynomials, bts)
+		mPolynomials[i] = bts
 	}
 
 	return polynomials, mPolynomials
@@ -121,9 +127,15 @@ func (s *ServerConfig) CreateTIBENode() (tibe.VssIbeNode, error) {
 			return nil, err
 		}
 
+		mpk := tibe.MasterPublicKey{}
+		if err := mpk.SetBytes(cnfg.AddressOfNodeToMasterPublicKeys[hostname]); err != nil {
+			return nil, err
+		}
+
 		node.ReceiveShare(hostname, tibe.VssShare{
-			ExponentPoly: expoly,
-			PolyShare:    shr,
+			ExponentPoly:    expoly,
+			PolyShare:       shr,
+			MasterPublicKey: mpk,
 		})
 	}
 

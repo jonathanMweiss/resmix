@@ -56,6 +56,10 @@ type MasterPublicKey struct {
 	G1 *bls12381.G1
 }
 
+func NewMasterPublicKey() MasterPublicKey {
+	return MasterPublicKey{G1: &bls12381.G1{}}
+}
+
 // a decryptor tied to a specific ID.
 type idBasedPrivateKey struct {
 	*bls12381.G2
@@ -89,6 +93,19 @@ func (p MasterPublicKey) Encrypt(ID, msg []byte) (Cipher, error) {
 		ID:        ID,
 		Encrypted: c,
 	}, nil
+}
+
+func (p *MasterPublicKey) Bytes() []byte {
+	return p.G1.Bytes()
+}
+
+func (p *MasterPublicKey) SetBytes(bytes []byte) error {
+	if p.G1 == nil {
+		p.G1 = &bls12381.G1{}
+	}
+
+	return p.G1.SetBytes(bytes)
+
 }
 
 // Decrypt decrypts a Cipher.
