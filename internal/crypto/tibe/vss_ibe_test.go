@@ -27,12 +27,11 @@ func TestVSSIBEReconstructKeyForSpecificIDUsingNodes(t *testing.T) {
 
 	// send shares:
 	for i, node := range nodes {
-		shrs, exPoly := node.VssShares(len(nodes))
+		shrs, err := node.VssShares(len(nodes))
+		require.NoError(t, err)
+
 		for j, ibeNode := range nodes {
-			ibeNode.ReceiveShare(strconv.Itoa(i), VssShare{
-				ExponentPoly: exPoly,
-				PolyShare:    shrs[j],
-			})
+			ibeNode.ReceiveShare(strconv.Itoa(i), shrs[j])
 		}
 	}
 	keyID := []byte("key1")
@@ -67,7 +66,9 @@ func TestVSSIBEReconstructKeyForSpecificID(t *testing.T) {
 	p := NewRandomPoly(5)
 	vb := newShareableIbeScheme(p)
 
-	shrs, expoly := vb.VssShares(10)
+	shrs, err := vb.VssShares(10)
+	require.NoError(t, err)
+
 	// create Votes using the shares to get a specific key:
 	keyname := []byte("key1")
 
@@ -83,7 +84,7 @@ func TestVSSIBEReconstructKeyForSpecificID(t *testing.T) {
 
 	nd := NewNode(p)
 	nd.ReceiveShare("0", VssShare{
-		ExponentPoly: expoly,
+		ExponentPoly: shrs[0].ExponentPoly,
 		PolyShare:    PolyShare{},
 	})
 	sk, err := nd.ReconstructDecrypter("0", votes)
@@ -98,7 +99,9 @@ func BenchmarkReconstructIbeDecryptor(b *testing.B) {
 	p := NewRandomPoly(50)
 	vb := newShareableIbeScheme(p)
 
-	shrs, expoly := vb.VssShares(100)
+	shrs, err := vb.VssShares(100)
+	require.NoError(b, err)
+
 	// create Votes using the shares to get a specific key:
 	keyname := []byte("key1")
 
@@ -110,12 +113,12 @@ func BenchmarkReconstructIbeDecryptor(b *testing.B) {
 	}
 
 	for _, vote := range votes {
-		expoly.GetPublicShare(uint64(vote.Index))
+		shrs[0].ExponentPoly.GetPublicShare(uint64(vote.Index))
 	}
 
 	nd := NewNode(p)
 	nd.ReceiveShare("0", VssShare{
-		ExponentPoly: expoly,
+		ExponentPoly: shrs[0].ExponentPoly,
 		PolyShare:    PolyShare{},
 	})
 	b.ResetTimer()
