@@ -2,6 +2,7 @@ package tibe
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"github.com/cloudflare/circl/ecc/bls12381"
 	"sort"
@@ -17,6 +18,38 @@ type Poly struct {
 type PolyShare struct {
 	Index int
 	Value *bls12381.Scalar
+}
+
+func (p PolyShare) Marshal() ([]byte, error) {
+	bts, err := p.Value.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	bf := make([]byte, len(bts)+4)
+	binary.BigEndian.PutUint32(bf, uint32(p.Index))
+	copy(bf[4:], bts)
+	return bf, nil
+}
+
+func (p *PolyShare) SetBytes(bts []byte) error {
+	if len(bts) < 4+bls12381.ScalarSize {
+		return fmt.Errorf("invalid share")
+	}
+
+	p.Index = int(binary.BigEndian.Uint32(bts))
+
+	p.Value = &bls12381.Scalar{}
+	return p.Value.UnmarshalBinary(bts[4:])
+}
+
+func (p *PolyShare) ComputePublicKey() PublicKey {
+	pkey := &bls12381.G1{}
+	pkey.ScalarMult(p.Value, bls12381.G1Generator())
+	return PublicKey{
+		Index: p.Index,
+		G1:    pkey,
+	}
 }
 
 // NewRandomPoly returns a new polynomial with a random secret and random coefficients.
@@ -111,6 +144,68 @@ func (p *Poly) Copy() *Poly {
 	}
 
 	return cpy
+}
+
+func (p *Poly) Marshal() ([]byte, error) {
+	if p == nil {
+		return nil, ErrNilReceiver
+	}
+	numCoeffs := len(p.Coefs)
+
+	bf := make([]byte, 4, 4+numCoeffs*bls12381.ScalarSize)
+	binary.BigEndian.PutUint32(bf, uint32(numCoeffs))
+
+	for _, c := range p.Coefs {
+		bts, err := c.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		bf = append(bf, bts...)
+	}
+	return bf, nil
+}
+
+func (p *Poly) SetBytes(mrshalled []byte) error {
+	if p == nil {
+		return ErrNilReceiver
+	}
+
+	if len(mrshalled) < 4 {
+		return fmt.Errorf("invalid marshalled polynomial")
+	}
+
+	numCoeffs := int(binary.BigEndian.Uint32(mrshalled))
+	p.Coefs = make([]*bls12381.Scalar, numCoeffs)
+
+	if len(mrshalled) != 4+numCoeffs*bls12381.ScalarSize {
+		return fmt.Errorf("invalid marshalled polynomial")
+	}
+
+	for i := 0; i < numCoeffs; i++ {
+		p.Coefs[i] = &bls12381.Scalar{}
+		p.Coefs[i].SetBytes(mrshalled[4+i*bls12381.ScalarSize : 4+(i+1)*bls12381.ScalarSize])
+	}
+
+	return nil
+}
+
+func (p *Poly) Equal(p2 *Poly) bool {
+	if p == nil || p2 == nil {
+		return false
+	}
+
+	if p.Degree() != p2.Degree() {
+		return false
+	}
+
+	for i := range p.Coefs {
+		if p.Coefs[i].IsEqual(p2.Coefs[i]) != 1 {
+			return false
+		}
+	}
+
+	return true
 }
 
 type lagrangeIndexMultiplier struct {

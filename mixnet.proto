@@ -1,0 +1,61 @@
+syntax = "proto3";
+package resmix;
+
+
+option go_package = "github.com/jonathanMweiss/resmix";
+
+// Each mix should have two polynomials:
+// one that they own alone, and one that they all saw.
+
+// each mix shares via VSS parts of their polnomial with the other mixes: these are the secret shares each mix has of the other mixes' polynomials.
+// Each mix can use these shares to vote in favour of releasing some key:
+service Mix {
+  // setting up:
+  rpc NewRound(NewRoundRequest) returns (NewRoundResponse) {} // todo: i think the server should have it's messages.
+  rpc EndRound(EndRoundRequest) returns (EndRoundResponse) {}
+  //  rpc StartRound(StartRoundRequest) returns (StartRoundResponse) {}
+
+  // used to send messages to the mix...
+  //  rpc SubmitCiphertexts(stream SubmitCiphertextsRequest) returns (SubmitCiphertextsResponse) {}
+}
+
+message NewRoundRequest {
+  uint32 round = 1;
+}
+
+message NewRoundResponse {}
+
+message EndRoundRequest {
+  uint32 round = 1;
+}
+
+message EndRoundResponse {}
+
+message Messages{
+  repeated bytes messages = 1;
+
+  // represents the logical mix (which layer) that sent the messages.
+  bytes physicalSender = 2;
+  bytes logicalSender = 3;
+  bytes logicalReceiver = 4;
+}
+
+message AddMessagesRequest{
+  uint32 round = 1;
+  repeated Messages messages = 2;
+}
+
+
+// Key release:
+
+message Vote {
+  // sig over some ID. the sig is created using some part of a DKG share.
+  bytes signature = 1;
+  uint32 signerPosition = 2;
+}
+
+message KeyReleaseMessage {
+  repeated Vote votes = 1;
+  // all votes are targeting this id.
+  bytes serverId = 2;
+}

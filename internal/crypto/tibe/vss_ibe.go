@@ -23,7 +23,7 @@ type Master interface {
 	// GetMasterPublicKey returns the master public key of the IBE scheme. The MPK should be used to encrypt messages
 	// to any upcoming round-key.
 	GetMasterPublicKey() (MasterPublicKey, error)
-	VssShares(n int) ([]PolyShare, *ExponentPoly)
+	VssShares(n int) ([]VssShare, error)
 }
 
 // VssIbeNode is a node in the VSS IBE scheme. Can receive shares from other Ibe nodes, and reconstruct
@@ -32,6 +32,8 @@ type Master interface {
 // VSS can be done using the exPoly of each Share. Only need to verify all servers received the same exPoly.
 type VssIbeNode interface {
 	Master
+
+	EncryptFor(otherNodeName string, ID, msg []byte) (Cipher, error)
 	// Vote generates the part of a secret key using the VssShare this Node received.
 	// collecting enough votes will allow to reconstruct the secret key: H(id)^{sum(votes)} = H(ID)^P(0) where P is
 	// the polynoimial of otherNodeName.
@@ -52,6 +54,10 @@ type Cipher struct {
 // MasterPublicKey is an Encrypter.
 type MasterPublicKey struct {
 	G1 *bls12381.G1
+}
+
+func NewMasterPublicKey() MasterPublicKey {
+	return MasterPublicKey{G1: &bls12381.G1{}}
 }
 
 // a decryptor tied to a specific ID.
@@ -89,6 +95,19 @@ func (p MasterPublicKey) Encrypt(ID, msg []byte) (Cipher, error) {
 	}, nil
 }
 
+func (p *MasterPublicKey) Bytes() []byte {
+	return p.G1.Bytes()
+}
+
+func (p *MasterPublicKey) SetBytes(bytes []byte) error {
+	if p.G1 == nil {
+		p.G1 = &bls12381.G1{}
+	}
+
+	return p.G1.SetBytes(bytes)
+
+}
+
 // Decrypt decrypts a Cipher.
 func (sk idBasedPrivateKey) Decrypt(c Cipher) ([]byte, error) {
 	k, err := hashGt(bls12381.Pair(c.Gr, sk.G2))
@@ -110,10 +129,20 @@ type Node struct {
 	workQueue chan validateTask
 }
 
+func (t Node) EncryptFor(otherNodeName string, ID, msg []byte) (Cipher, error) {
+	shr, ok := t.Shares.Load(otherNodeName)
+	if !ok {
+		return Cipher{}, fmt.Errorf("no share for node %v", otherNodeName)
+	}
+
+	return shr.MasterPublicKey.Encrypt(ID, msg)
+}
+
 // VssShare holds the share of the underlying polynomial, and the public polynomial (exPoly)
 type VssShare struct {
 	*ExponentPoly
 	PolyShare
+	MasterPublicKey
 }
 
 type validateTask struct {
@@ -241,8 +270,25 @@ type shareableIbeScheme struct {
 	S  *bls12381.Scalar
 }
 
-func (I shareableIbeScheme) VssShares(n int) ([]PolyShare, *ExponentPoly) {
-	return I.P.CreateShares(n), I.P.GetExponentPoly()
+func (I shareableIbeScheme) VssShares(n int) ([]VssShare, error) {
+	expoly := I.P.GetExponentPoly()
+	polyShares := I.P.CreateShares(n)
+	shrs := make([]VssShare, n)
+
+	for i := range shrs {
+		mpk, err := I.GetMasterPublicKey()
+		if err != nil {
+			return nil, err
+		}
+
+		shrs[i] = VssShare{
+			ExponentPoly:    expoly,
+			PolyShare:       polyShares[i],
+			MasterPublicKey: mpk,
+		}
+
+	}
+	return shrs, nil
 }
 
 func newShareableIbeScheme(poly Poly) shareableIbeScheme {

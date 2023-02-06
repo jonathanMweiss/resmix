@@ -1,6 +1,7 @@
 package tibe
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/cloudflare/circl/ecc/bls12381"
 )
@@ -43,6 +44,35 @@ type Signature *bls12381.G2
 type PublicKey struct {
 	Index int // index of the share
 	*bls12381.G1
+}
+
+func (p PublicKey) Marshal() []byte {
+	bts := p.G1.Bytes()
+
+	bf := make([]byte, len(bts)+4)
+	binary.BigEndian.PutUint32(bf, uint32(p.Index))
+	copy(bf[4:], bts)
+
+	return bf
+}
+
+func (p *PublicKey) SetBytes(bts []byte) error {
+	if p == nil {
+		return ErrNilReceiver
+	}
+
+	if p == nil {
+		return fmt.Errorf("nil public key")
+	}
+
+	if len(bts) < 4 {
+		return fmt.Errorf("invalid public key")
+	}
+
+	p.Index = int(binary.BigEndian.Uint32(bts))
+
+	p.G1 = &bls12381.G1{}
+	return p.G1.SetBytes(bts[4:])
 }
 
 // NewPublisher is the constructor of a Publisher.
@@ -177,7 +207,6 @@ type ReconstructProperties struct {
 	HidingValue *bls12381.G1 // g^r
 }
 
-//
 type hidingKey struct {
 	ReconstructProperties
 	Key []byte
