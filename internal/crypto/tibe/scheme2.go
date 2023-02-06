@@ -49,7 +49,7 @@ type PublicKey struct {
 func (p PublicKey) Marshal() []byte {
 	bts := p.G1.Bytes()
 
-	bf := make([]byte, 4, len(bts)+4)
+	bf := make([]byte, len(bts)+4)
 	binary.BigEndian.PutUint32(bf, uint32(p.Index))
 	copy(bf[4:], bts)
 

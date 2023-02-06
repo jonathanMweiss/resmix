@@ -1,10 +1,10 @@
-package resmix
+package config
 
 import (
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 )
 
-func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
+func CreateConfigs(addresses []string, polyDegree int) []*ServerConfig {
 	dkgShrs, dkgBytePkeys := DKGSetup(addresses, polyDegree)
 
 	serverConfigs := make([]*ServerConfig, len(addresses))
