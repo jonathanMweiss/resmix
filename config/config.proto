@@ -36,6 +36,8 @@ message ServerConfig {
   bytes SecretDKGShare = 4;
   repeated bytes DKGPublicKeys = 5;
   IBEConfigs IBEConfigs = 6;
+
+  repeated string Mixes = 7;
 }
 
 message LogicalMix{

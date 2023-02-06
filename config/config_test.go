@@ -9,14 +9,6 @@ import (
 	"testing"
 )
 
-func createConfigs(nServers int) []*ServerConfig {
-	hostnames := createHostnames(nServers)
-
-	cnfgs := CreateConfigs(hostnames, nServers/2)
-
-	return cnfgs
-}
-
 func createHostnames(nServers int) []string {
 	hostnames := make([]string, nServers)
 
@@ -28,7 +20,8 @@ func createHostnames(nServers int) []string {
 
 func TestConfigGeneratePublishersCorrectly(t *testing.T) {
 	a := require.New(t)
-	cnfgs := createConfigs(10)
+	nServers := 10
+	cnfgs := createConfigs(createHostnames(nServers), nServers/2)
 
 	publishers := make([]tibe.Publisher, len(cnfgs))
 	for i, cnfg := range cnfgs {
@@ -55,7 +48,8 @@ func TestConfigGeneratePublishersCorrectly(t *testing.T) {
 
 func TestVSSCreation(t *testing.T) {
 	a := require.New(t)
-	cnfgs := createConfigs(10)
+	nServers := 10
+	cnfgs := createConfigs(createHostnames(nServers), nServers/2)
 
 	masterKeys := make([]tibe.VssIbeNode, len(cnfgs))
 	for i, cnfg := range cnfgs {
@@ -140,5 +134,5 @@ func TestMarshalTopology(t *testing.T) {
 
 	bffr := bytes.NewBuffer(nil)
 	require.NoError(t, proto.MarshalText(bffr, top))
-	fmt.Println(bffr.String())
+	t.Log(bffr.String())
 }

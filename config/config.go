@@ -4,14 +4,21 @@ import (
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 )
 
+// CreateSystemConfigs
+// polyDegree is the degree of the polynomial used for DKG and VSS. determines the threshold of VSS (degree + 1).
 func CreateSystemConfigs(addresses []string, polyDegree, numLayers int) *SystemConfig {
+	top := CreateCascadeTopology(addresses, numLayers)
+	srvrs := createConfigs(addresses, polyDegree)
+	for _, srvr := range srvrs {
+		srvr.setMixNames(top)
+	}
 	return &SystemConfig{
-		ServerConfigs: CreateConfigs(addresses, polyDegree),
-		LogicalMixes:  CreateCascadeTopology(addresses, numLayers),
+		ServerConfigs: srvrs,
+		LogicalMixes:  top,
 	}
 }
 
-func CreateConfigs(addresses []string, polyDegree int) []*ServerConfig {
+func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
 	dkgShrs, dkgBytePkeys := DKGSetup(addresses, polyDegree)
 
 	serverConfigs := make([]*ServerConfig, len(addresses))
@@ -147,4 +154,14 @@ func (s *ServerConfig) CreateTIBENode() (tibe.VssIbeNode, error) {
 	}
 
 	return node, nil
+}
+
+func (s *ServerConfig) setMixNames(top *Topology) {
+	for nm, mix := range top.Mixes {
+		if mix.Hostname != s.Hostname {
+			continue
+		}
+
+		s.Mixes = append(s.Mixes, nm)
+	}
 }
