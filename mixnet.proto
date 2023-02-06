@@ -19,17 +19,22 @@ service Mix {
   //  rpc SubmitCiphertexts(stream SubmitCiphertextsRequest) returns (SubmitCiphertextsResponse) {}
 }
 
+message IBEConfigs{
+  bytes VSSPolynomial = 1;
+  map<string, bytes> VSSExponentPolynomials = 2;
+  map<string, bytes> AddressOfNodeToSecretShare = 3;
+}
+
 message ServerConfig {
   string Hostname = 1;
 
   // Id is the id of the server, represent it's position in the DKG/VSS.
   uint32 Id = 2;
+  uint32 threshold = 3;
   // DKGPolynomialShare is the secret share this server holds from participating in DKG.
-  bytes SecretDKGShare = 3;
-  repeated bytes DKGPublicKeys = 4;
-
-  bytes VSSPolynomial = 5;
-
+  bytes SecretDKGShare = 4;
+  repeated bytes DKGPublicKeys = 5;
+  IBEConfigs IBEConfigs = 6;
 }
 
 message NewRoundRequest {
