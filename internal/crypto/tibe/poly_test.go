@@ -185,6 +185,17 @@ func TestMarshalUnmarshalShare(t *testing.T) {
 	require.True(t, shr.Value.IsEqual(shr2.Value) == 1)
 }
 
+func TestMarshalUnmarshalExponentPoly(t *testing.T) {
+	p1 := NewRandomPoly(10)
+	exp := p1.GetExponentPoly()
+	mrshalled := exp.Marshal()
+
+	exp2 := &ExponentPoly{}
+	require.NoError(t, exp2.SetBytes(mrshalled))
+
+	require.True(t, exp.Equal(exp2))
+}
+
 func BenchmarkExponentPoly_GetPublicShare(b *testing.B) {
 	p := NewRandomPoly(50)
 	exp := p.GetExponentPoly()

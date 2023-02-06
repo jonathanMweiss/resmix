@@ -147,6 +147,9 @@ func (p *Poly) Copy() *Poly {
 }
 
 func (p *Poly) Marshal() ([]byte, error) {
+	if p == nil {
+		return nil, ErrNilReceiver
+	}
 	numCoeffs := len(p.Coefs)
 
 	bf := make([]byte, 4, 4+numCoeffs*bls12381.ScalarSize)
@@ -165,7 +168,7 @@ func (p *Poly) Marshal() ([]byte, error) {
 
 func (p *Poly) SetBytes(mrshalled []byte) error {
 	if p == nil {
-		return fmt.Errorf("nil polynomial")
+		return ErrNilReceiver
 	}
 
 	if len(mrshalled) < 4 {

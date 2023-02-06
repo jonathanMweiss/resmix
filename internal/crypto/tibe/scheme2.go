@@ -58,6 +58,10 @@ func (p PublicKey) Marshal() []byte {
 
 func (p *PublicKey) SetBytes(bts []byte) error {
 	if p == nil {
+		return ErrNilReceiver
+	}
+
+	if p == nil {
 		return fmt.Errorf("nil public key")
 	}
 

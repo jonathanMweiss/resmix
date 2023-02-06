@@ -1,6 +1,8 @@
 package tibe
 
 import (
+	"encoding/binary"
+	"fmt"
 	"github.com/cloudflare/circl/ecc/bls12381"
 	"strconv"
 	"sync"
@@ -78,4 +80,61 @@ func (e *ExponentPoly) VerifyShare(index uint64, share *bls12381.Scalar) bool {
 	actual.ScalarMult(share, bls12381.G1Generator())
 
 	return actual.IsEqual(e.GetPublicShare(index))
+}
+
+func (e *ExponentPoly) Marshal() []byte {
+	bts := make([]byte, 4+len(e.Coefs)*bls12381.G1Size)
+	binary.BigEndian.PutUint32(bts, uint32(len(e.Coefs)))
+
+	for i, c := range e.Coefs {
+		copy(bts[4+i*bls12381.G1Size:], c.Bytes())
+	}
+
+	return bts
+}
+
+var ErrNilReceiver = fmt.Errorf("nil receiver")
+
+func (e *ExponentPoly) SetBytes(bts []byte) error {
+	if e == nil {
+		return ErrNilReceiver
+	}
+
+	if len(bts) < 4 {
+		return fmt.Errorf("invalid length")
+	}
+	numCoefs := binary.BigEndian.Uint32(bts[:4])
+
+	if len(bts) != 4+int(numCoefs)*bls12381.G1Size {
+		return fmt.Errorf("invalid length")
+	}
+
+	e.Coefs = make([]*bls12381.G1, numCoefs)
+	for i := 0; i < int(numCoefs); i++ {
+		e.Coefs[i] = &bls12381.G1{}
+
+		if err := e.Coefs[i].SetBytes(bts[4+i*bls12381.G1Size : 4+(i+1)*bls12381.G1Size]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *ExponentPoly) Equal(exp2 *ExponentPoly) bool {
+	if e == nil || exp2 == nil {
+		return false
+	}
+
+	if len(e.Coefs) != len(exp2.Coefs) {
+		return false
+	}
+
+	for i := 0; i < len(e.Coefs); i++ {
+		if !e.Coefs[i].IsEqual(exp2.Coefs[i]) {
+			return false
+		}
+	}
+
+	return true
 }
