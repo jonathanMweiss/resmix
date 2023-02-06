@@ -8,15 +8,20 @@ import (
 )
 
 func createConfigs(nServers int) []*ServerConfig {
+	hostnames := createHostnames(nServers)
+
+	cnfgs := CreateConfigs(hostnames, nServers/2)
+
+	return cnfgs
+}
+
+func createHostnames(nServers int) []string {
 	hostnames := make([]string, nServers)
 
 	for i := range hostnames {
 		hostnames[i] = fmt.Sprintf("localhost:808%d", i)
 	}
-
-	cnfgs := CreateConfigs(hostnames, nServers/2)
-
-	return cnfgs
+	return hostnames
 }
 
 func TestConfigGeneratePublishersCorrectly(t *testing.T) {
@@ -84,4 +89,44 @@ func TestVSSCreation(t *testing.T) {
 	a.NoError(err)
 
 	a.Equal(ptx, ptx2)
+}
+
+func TestTopology(t *testing.T) {
+	hostnames := createHostnames(5)
+	nlayers := 4
+
+	top := CreateCascadeTopology(hostnames, nlayers)
+	require.Equal(t, 4, len(top.Layers))
+
+	for _, layer := range top.Layers {
+		require.Equal(t, len(hostnames), len(layer.LogicalMixes))
+	}
+
+	for i, mix := range top.Layers[0].LogicalMixes {
+		require.Equal(t, hostnames[i], mix.Hostname)
+		require.Equal(t, i, int(mix.ServerIndex))
+		require.Equal(t, 0, int(mix.Layer))
+
+		require.Equal(t, fmt.Sprintf("m(0,%d)", i), mix.Name)
+	}
+
+	// validating one predecessor chain.
+	currentMix := top.Layers[len(top.Layers)-1].LogicalMixes[0]
+	l, idx := 3, 3
+	for l != -1 {
+		require.Equal(t, fmt.Sprintf("m(%d,%d)", l, idx), currentMix.Name)
+		currentMix = currentMix.Predecessors[0]
+		l -= 1
+		idx -= 1
+	}
+	require.Equal(t, GenesisName, currentMix.Name)
+
+	currentMix = top.Layers[0].LogicalMixes[0]
+	l, idx = 0, 0
+	for l != nlayers {
+		require.Equal(t, fmt.Sprintf("m(%d,%d)", l, idx), currentMix.Name)
+		currentMix = currentMix.Successors[0]
+		l += 1
+		idx += 1
+	}
 }

@@ -12,6 +12,19 @@ message IBEConfigs{
   map<string, bytes> AddressOfNodeToMasterPublicKeys = 4;
 }
 
+message SystemConfig{
+  repeated ServerConfig ServerConfigs = 1;
+  Topology LogicalMixes = 2;
+}
+
+message Layer{
+  repeated LogicalMix logicalMixes = 1;
+}
+
+message Topology{
+  repeated Layer layers = 1;
+}
+
 message ServerConfig {
   string Hostname = 1;
 
@@ -22,4 +35,16 @@ message ServerConfig {
   bytes SecretDKGShare = 4;
   repeated bytes DKGPublicKeys = 5;
   IBEConfigs IBEConfigs = 6;
+}
+
+message LogicalMix{
+  // who owns this mix
+  string Hostname = 1;
+
+  string Name = 2;
+  int32 ServerIndex = 3;
+  int32 layer = 4;
+
+  repeated LogicalMix predecessors = 5;
+  repeated LogicalMix successors = 6;
 }
