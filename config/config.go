@@ -4,6 +4,13 @@ import (
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 )
 
+func CreateSystemConfigs(addresses []string, polyDegree, numLayers int) *SystemConfig {
+	return &SystemConfig{
+		ServerConfigs: CreateConfigs(addresses, polyDegree),
+		LogicalMixes:  CreateCascadeTopology(addresses, numLayers),
+	}
+}
+
 func CreateConfigs(addresses []string, polyDegree int) []*ServerConfig {
 	dkgShrs, dkgBytePkeys := DKGSetup(addresses, polyDegree)
 

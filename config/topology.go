@@ -5,7 +5,11 @@ import (
 )
 
 func CreateCascadeTopology(servers []string, numLayers int) *Topology {
-	t := &Topology{}
+	t := &Topology{
+		Layers: make([]*Layer, 0, numLayers),
+		Mixes:  make(map[string]*LogicalMix, numLayers*len(servers)),
+	}
+
 	for i := 0; i < numLayers; i++ {
 		t.createLayer(servers, numLayers)
 	}
@@ -34,6 +38,8 @@ func (x *Topology) createLayer(hostnames []string, totalLayers int) {
 			Predecessors: nil,
 			Successors:   nil,
 		})
+
+		x.Mixes[layer.LogicalMixes[i].Name] = layer.LogicalMixes[i]
 	}
 }
 
@@ -43,20 +49,12 @@ func (x *Topology) SetPredecessors() {
 	for layerNum, layer := range x.Layers {
 		for i, mix := range layer.LogicalMixes {
 			if layerNum == 0 {
-				mix.Predecessors = []*LogicalMix{
-					{
-						Hostname: GenesisName,
-						Name:     GenesisName,
+				mix.Predecessors = []string{GenesisName}
 
-						Layer:        mix.Layer - 1,
-						Predecessors: nil,
-						Successors:   []*LogicalMix{mix},
-					},
-				}
 				continue
 			}
 
-			mix.Predecessors = append(mix.Predecessors, x.Layers[layerNum-1].LogicalMixes[i])
+			mix.Predecessors = append(mix.Predecessors, x.Layers[layerNum-1].LogicalMixes[i].Name)
 		}
 	}
 }
@@ -65,20 +63,15 @@ func (x *Topology) SetSuccessors() {
 	for layerNum, layer := range x.Layers {
 		for i, mix := range layer.LogicalMixes {
 			if layerNum == len(x.Layers)-1 {
-				mix.Successors = []*LogicalMix{
-					{
-						Hostname: GenesisName,
-						Name:     GenesisName,
+				mix.Successors = []string{GenesisName}
 
-						Layer:        mix.Layer + 1,
-						Predecessors: []*LogicalMix{mix},
-						Successors:   nil,
-					},
-				}
 				continue
 			}
 
-			mix.Successors = append(mix.Successors, x.Layers[layerNum+1].LogicalMixes[i])
+			mix.Successors = append(mix.Successors, x.Layers[layerNum+1].LogicalMixes[i].Name)
 		}
 	}
+}
+func (x *Topology) GetMix(name string) *LogicalMix {
+	return x.Mixes[name]
 }

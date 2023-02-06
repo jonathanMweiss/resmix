@@ -23,6 +23,7 @@ message Layer{
 
 message Topology{
   repeated Layer layers = 1;
+  map<string, LogicalMix> mixes = 2;
 }
 
 message ServerConfig {
@@ -45,6 +46,6 @@ message LogicalMix{
   int32 ServerIndex = 3;
   int32 layer = 4;
 
-  repeated LogicalMix predecessors = 5;
-  repeated LogicalMix successors = 6;
+  repeated string predecessors = 5;
+  repeated string successors = 6;
 }

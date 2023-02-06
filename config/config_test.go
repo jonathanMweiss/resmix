@@ -1,7 +1,9 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/golang/protobuf/proto"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -113,20 +115,30 @@ func TestTopology(t *testing.T) {
 	// validating one predecessor chain.
 	currentMix := top.Layers[len(top.Layers)-1].LogicalMixes[0]
 	l, idx := 3, 3
-	for l != -1 {
+	for currentMix != nil {
 		require.Equal(t, fmt.Sprintf("m(%d,%d)", l, idx), currentMix.Name)
-		currentMix = currentMix.Predecessors[0]
+		currentMix = top.GetMix(currentMix.Predecessors[0])
 		l -= 1
 		idx -= 1
 	}
-	require.Equal(t, GenesisName, currentMix.Name)
 
 	currentMix = top.Layers[0].LogicalMixes[0]
 	l, idx = 0, 0
-	for l != nlayers {
+	for currentMix != nil {
 		require.Equal(t, fmt.Sprintf("m(%d,%d)", l, idx), currentMix.Name)
-		currentMix = currentMix.Successors[0]
+		currentMix = top.GetMix(currentMix.Successors[0])
 		l += 1
 		idx += 1
 	}
+}
+
+func TestMarshalTopology(t *testing.T) {
+	hostnames := createHostnames(5)
+
+	top := CreateCascadeTopology(hostnames, 4)
+	require.Equal(t, 4, len(top.Layers))
+
+	bffr := bytes.NewBuffer(nil)
+	require.NoError(t, proto.MarshalText(bffr, top))
+	fmt.Println(bffr.String())
 }
