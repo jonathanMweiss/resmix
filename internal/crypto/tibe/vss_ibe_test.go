@@ -55,9 +55,10 @@ func TestVSSIBEReconstructKeyForSpecificIDUsingNodes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, c.Encrypted, []byte("check")) // ensuring the ciphertext is not equal to the plaintext.
 
-	msg, err := dec.Decrypt(c)
+	msg, err := dec.Decrypt(c.Copy()) // using copy to ensure we do not change the cipher in between...
 	require.NoError(t, err)
-	msg2, err := nodes[0].Decrypter(keyID).Decrypt(c)
+
+	msg2, err := nodes[0].Decrypter(keyID).Decrypt(c.Copy())
 	require.NoError(t, err)
 	require.Equal(t, msg, msg2)
 

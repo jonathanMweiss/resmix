@@ -1,6 +1,8 @@
 package tibe
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"github.com/cloudflare/circl/ecc/bls12381"
 	"github.com/jonathanMweiss/resmix/internal/msync"
@@ -47,8 +49,20 @@ type VssIbeNode interface {
 // Cipher is the ciphertext, can be decrypted by a specific Decrypter.
 type Cipher struct {
 	Gr        *bls12381.G1
-	ID        []byte
+	Mac       []byte
 	Encrypted []byte
+}
+
+func (c Cipher) Copy() Cipher {
+	gr := &bls12381.G1{}
+	identitiy := &bls12381.G1{}
+	identitiy.SetIdentity()
+	gr.Add(c.Gr, identitiy)
+	return Cipher{
+		Gr:        gr,
+		Mac:       append([]byte{}, c.Mac...),
+		Encrypted: append([]byte{}, c.Encrypted...),
+	}
 }
 
 // MasterPublicKey is an Encrypter.
@@ -89,8 +103,9 @@ func (p MasterPublicKey) Encrypt(ID, msg []byte) (Cipher, error) {
 	tmp.ScalarMult(r, bls12381.G1Generator())
 
 	return Cipher{
-		Gr:        tmp,
-		ID:        ID,
+		Gr: tmp,
+		// TODO: verify with GIL this is secure authentication over the ciphertext.
+		Mac:       hmac.New(sha256.New, k).Sum(append(tmp.Bytes(), c...)),
 		Encrypted: c,
 	}, nil
 }
@@ -113,6 +128,11 @@ func (sk idBasedPrivateKey) Decrypt(c Cipher) ([]byte, error) {
 	k, err := hashGt(bls12381.Pair(c.Gr, sk.G2))
 	if err != nil {
 		return nil, err
+	}
+
+	cmputedMac := hmac.New(sha256.New, k).Sum(append(c.Gr.Bytes(), c.Encrypted...))
+	if !hmac.Equal(c.Mac, cmputedMac) {
+		return nil, fmt.Errorf("mac mismatch")
 	}
 
 	return aesDecrypt(k, c.Encrypted)
