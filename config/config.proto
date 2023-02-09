@@ -38,6 +38,9 @@ message ServerConfig {
   IBEConfigs IBEConfigs = 6;
 
   repeated string Mixes = 7;
+
+  bytes rrpcSecretKey = 8;
+  bytes rrpcPublicKey = 9;
 }
 
 message LogicalMix{

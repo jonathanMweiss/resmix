@@ -1,7 +1,9 @@
 package config
 
 import (
+	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
+	"strconv"
 )
 
 // CreateSystemConfigs
@@ -18,12 +20,27 @@ func CreateSystemConfigs(addresses []string, polyDegree, numLayers int) *SystemC
 	}
 }
 
+func CreateLocalSystemConfigs(numServers, polyDegree, numLayers int) *SystemConfig {
+	addresses := make([]string, numServers)
+	for i := range addresses {
+		addresses[i] = "localhost:" + strconv.Itoa(5050+i)
+	}
+
+	return CreateSystemConfigs(addresses, polyDegree, numLayers)
+
+}
+
 func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
 	dkgShrs, dkgBytePkeys := DKGSetup(addresses, polyDegree)
 
 	serverConfigs := make([]*ServerConfig, len(addresses))
 	for i := range addresses {
 		bts, err := dkgShrs[i].Marshal()
+		if err != nil {
+			panic(err)
+		}
+
+		sk, pk, err := crypto.GenerateKeys()
 		if err != nil {
 			panic(err)
 		}
@@ -41,6 +58,9 @@ func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
 				AddressOfNodeToSecretShare:      map[string][]byte{},
 				AddressOfNodeToMasterPublicKeys: map[string][]byte{},
 			},
+			Mixes:         nil, // filled later.
+			RrpcSecretKey: sk,
+			RrpcPublicKey: pk,
 		}
 	}
 
