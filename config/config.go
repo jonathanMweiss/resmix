@@ -3,6 +3,7 @@ package config
 import (
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
+	"github.com/jonathanMweiss/resmix/rrpc"
 	"strconv"
 )
 
@@ -14,6 +15,19 @@ func CreateSystemConfigs(addresses []string, polyDegree, numLayers int) *SystemC
 	for _, srvr := range srvrs {
 		srvr.setMixNames(top)
 	}
+
+	peers := make([]*Peer, len(srvrs))
+	for i, srvr := range srvrs {
+		peers[i] = &Peer{
+			Hostname:      srvr.GetHostname(),
+			RrpcPublicKey: srvr.GetRrpcPublicKey(),
+		}
+	}
+
+	for _, srvr := range srvrs {
+		srvr.Peers = peers
+	}
+
 	return &SystemConfig{
 		ServerConfigs: srvrs,
 		LogicalMixes:  top,
@@ -184,4 +198,20 @@ func (s *ServerConfig) setMixNames(top *Topology) {
 
 		s.Mixes = append(s.Mixes, nm)
 	}
+}
+
+func (s *ServerConfig) CreateCoordinator() rrpc.ServerCoordinator {
+	ncnfgs := &rrpc.NetworkConfig{
+		Tau:           len(s.Peers) / 2,
+		ServerConfigs: make([]rrpc.ServerData, len(s.Peers)),
+	}
+
+	for i, peer := range s.Peers {
+		ncnfgs.ServerConfigs[i] = rrpc.ServerData{
+			Address:   peer.Hostname,
+			Publickey: peer.RrpcPublicKey,
+		}
+	}
+
+	return rrpc.NewCoordinator(rrpc.NewNetworkData(ncnfgs), s.RrpcSecretKey)
 }
