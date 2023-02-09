@@ -19,52 +19,43 @@ type Server interface {
 	Stop()
 }
 
-type CommonConfigs struct {
+type Configs struct {
 	IsGrpc            bool
 	ServerCoordinator ServerCoordinator
+	ServerOptions     []grpc.ServerOption
+	DialOptions       []grpc.DialOption
 }
 
-type ServerConfigs struct {
-	CommonConfigs
-	GrpcOptions []grpc.ServerOption
-}
-
-func (c CommonConfigs) isEmpty() bool {
+func (c Configs) isEmpty() bool {
 	return c.ServerCoordinator == nil && !c.IsGrpc
-}
-
-type ClientConfigs struct {
-	CommonConfigs
-	GrpcOptions []grpc.DialOption
 }
 
 var ErrNoConfigs = fmt.Errorf("no configs provided")
 
-func NewServer(services Services, cnfgs ServerConfigs) (Server, error) {
+func NewServer(services Services, cnfgs Configs) (Server, error) {
 	if cnfgs.isEmpty() {
 		return nil, ErrNoConfigs
 	}
 
 	if cnfgs.IsGrpc {
-		return newGrpcServer(services, cnfgs.GrpcOptions...), nil
+		return newGrpcServer(services, cnfgs.ServerOptions...), nil
 	}
 
 	return newServerService(
 		services,
 		cnfgs.ServerCoordinator,
-		cnfgs.GrpcOptions...,
+		cnfgs.ServerOptions...,
 	)
 }
 
-func NewConnection(target string, cnfgs ClientConfigs) (ClientConn, error) {
+func NewConnection(target string, cnfgs Configs) (ClientConn, error) {
 	if cnfgs.isEmpty() {
 		return nil, ErrNoConfigs
 	}
 
 	if cnfgs.IsGrpc {
-		return newGrpcClient(target, cnfgs.GrpcOptions...)
+		return newGrpcClient(target, cnfgs.DialOptions...)
 	}
 
 	return newClient(target, cnfgs.ServerCoordinator), nil
-
 }

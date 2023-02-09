@@ -5,22 +5,48 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
+	"github.com/jonathanMweiss/resmix/internal/msync"
 	"golang.org/x/crypto/sha3"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"strconv"
 )
+
+func NewMixServer(cnfgs *ResmixConfigs) (MixServer, error) {
+	pb, err := cnfgs.CreateTIBEPublisher()
+	if err != nil {
+		return nil, err
+	}
+
+	nd, err := cnfgs.CreateTIBENode()
+	if err != nil {
+		return nil, err
+	}
+
+	return &server{
+		Publisher:      pb,
+		DecryptionNode: nd,
+		Configurations: cnfgs,
+		States:         msync.Map[Round, RoundState]{},
+	}, nil
+}
 
 func computeId(hostname string, round int) [32]byte {
 	return sha3.Sum256([]byte(hostname + strconv.Itoa(round)))
 }
 
 func (s *server) NewRound(ctx context.Context, request *NewRoundRequest) (*NewRoundResponse, error) {
+	if s.Connections == nil {
+		return nil, status.Error(codes.FailedPrecondition, "no connections to other mixes")
+	}
+
 	workloadPerMix := map[mixName]int{}
 	for mName, load := range request.MixIdsToExpectedWorkload {
 		workloadPerMix[mixName(mName)] = int(load)
 	}
 
 	mixes := []*config.LogicalMix{}
-	for _, mix := range s.Topology.Mixes {
+	for _, mix := range s.Configurations.Topology.Mixes {
 		if mix.Hostname != s.Configurations.Hostname {
 			continue
 		}

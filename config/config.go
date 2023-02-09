@@ -41,7 +41,6 @@ func CreateLocalSystemConfigs(numServers, polyDegree, numLayers int) *SystemConf
 	}
 
 	return CreateSystemConfigs(addresses, polyDegree, numLayers)
-
 }
 
 func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
