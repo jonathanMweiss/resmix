@@ -3,6 +3,7 @@ package rrpc
 import (
 	"context"
 	"fmt"
+	"google.golang.org/grpc"
 	"strings"
 
 	"google.golang.org/grpc/codes"
@@ -58,4 +59,25 @@ func (s Services) getServiceAndMethodDesc(name string) (*ServiceDesc, *MethodDes
 	}
 
 	return service, methodDesc, nil
+}
+
+func SingleServiceFromGRPCServiceDesc(dsc grpc.ServiceDesc, hndl interface{}) Services {
+	mdscs := map[string]*MethodDesc{}
+	for _, m := range dsc.Methods {
+		m := m
+		mdscs[m.MethodName] = &MethodDesc{
+			Name: m.MethodName,
+			Handler: func(server interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+				return m.Handler(server, ctx, dec, nil)
+			},
+		}
+	}
+
+	return Services{
+		"SERVR": {
+			ServerType:        dsc.HandlerType,
+			Server:            hndl,
+			MethodDescriptors: mdscs,
+		},
+	}
 }

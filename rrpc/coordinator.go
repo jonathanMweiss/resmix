@@ -15,6 +15,8 @@ import (
 type Coordinator interface {
 	NetworkData
 
+	GetSecretKey() crypto.PrivateKey
+
 	getErrorCorrectionCode() ecc.VerifyingEncoderDecoder
 	getVerifier() *MerkleCertVerifier
 	getRelayGroup() RelayGroup
@@ -57,6 +59,10 @@ type coordinator struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	ecc    ecc.VerifyingEncoderDecoder
+}
+
+func (n *coordinator) GetSecretKey() crypto.PrivateKey {
+	return n.skey
 }
 
 // NewCoordinator creates a Coordinator that is tied to a speicific node. cannot reuse for different nodes on same machine!

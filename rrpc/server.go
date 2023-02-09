@@ -53,7 +53,7 @@ func (s *server) Serve(lis net.Listener) error {
 	return s.gsrvr.Serve(lis)
 }
 
-func newServerService(skey crypto.PrivateKey, s Services, network ServerCoordinator, options ...grpc.ServerOption) (RrpcServer, error) {
+func newServerService(s Services, network ServerCoordinator, options ...grpc.ServerOption) (RrpcServer, error) {
 	cntx, cancelf := context.WithCancel(context.Background())
 	gsrvr := grpc.NewServer(options...)
 
@@ -61,7 +61,7 @@ func newServerService(skey crypto.PrivateKey, s Services, network ServerCoordina
 		Services:          s,
 		ServerCoordinator: network,
 
-		skey: skey,
+		skey: network.GetSecretKey(),
 
 		WaitGroup:  &sync.WaitGroup{},
 		CancelFunc: cancelf,

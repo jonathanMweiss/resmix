@@ -166,8 +166,8 @@ func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 	return nil
 }
 
-func newClient(key crypto.PrivateKey, serverAddress string, network Coordinator) *client {
-	ownAddress := network.GetHostname(key.Public())
+func newClient(serverAddress string, network Coordinator) *client {
+	ownAddress := network.GetHostname(network.GetSecretKey().Public())
 	serverPk, err := network.GetPublicKey(serverAddress)
 	if err != nil {
 		panic(err)
@@ -184,11 +184,11 @@ func newClient(key crypto.PrivateKey, serverAddress string, network Coordinator)
 		serverAddr:   serverAddress,
 		serverClient: newServerClient(cc),
 		network:      network,
-		secretKey:    key,
+		secretKey:    network.GetSecretKey(),
 
 		waitingTasks:          msync.Map[string, *rqstWithErr]{},
 		wg:                    sync.WaitGroup{},
-		identifier:            key.Public(),
+		identifier:            network.GetSecretKey().Public(),
 		serverID:              serverPk,
 		directCallSendChannel: make(chan *rqstWithErr, 10),
 		Context:               ctx,

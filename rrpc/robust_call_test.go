@@ -20,7 +20,7 @@ func TestRobustCall(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -56,7 +56,7 @@ func TestRobustCallTimeouts(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -97,7 +97,7 @@ func TestRobustCallErrors(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -136,7 +136,7 @@ func TestRobustCallFailWithSpecificCode(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -185,7 +185,7 @@ func TestRobustCallWithStructService(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -208,7 +208,7 @@ func BenchmarkRobustCall(b *testing.B) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 
 	req := &Request{
 		Args:    nil,
