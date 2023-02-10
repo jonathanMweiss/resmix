@@ -33,8 +33,9 @@ func NewMixServer(cnfgs *ResmixConfigs) (MixServer, error) {
 	}, nil
 }
 
-func computeId(hostname string, round int) [32]byte {
-	return sha3.Sum256([]byte(hostname + strconv.Itoa(round)))
+func computeId(hostname string, round int) []byte {
+	bts := sha3.Sum256([]byte(hostname + strconv.Itoa(round)))
+	return bts[:]
 }
 
 func (s *server) NewRound(ctx context.Context, request *NewRoundRequest) (*NewRoundResponse, error) {

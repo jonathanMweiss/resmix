@@ -20,9 +20,6 @@ func TestSystem(t *testing.T) {
 	rrpcServers := launchServers(t, mixServers)
 	defer closeServers(rrpcServers)
 
-	// todo make all mixnets dial.
-	// todo, make test client? nah, he should be able to call the function he wants directly.
-
 	for _, mixServer := range mixServers {
 		require.NoError(t, mixServer.Dial())
 
@@ -51,7 +48,7 @@ func createServers(t *testing.T, sys *config.SystemConfig) []*server {
 	for i, serverConfig := range sys.ServerConfigs {
 		msrvr, err := NewMixServer(&ResmixConfigs{
 			ServerConfig: serverConfig,
-			Topology:     sys.GetLogicalMixes(),
+			Topology:     sys.GetTopology(),
 			RrpcConfigs: rrpc.Configs{
 				IsGrpc:            false,
 				ServerCoordinator: serverConfig.CreateCoordinator(),

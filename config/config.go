@@ -229,3 +229,13 @@ func (s *ServerConfig) CreateCoordinator() rrpc.ServerCoordinator {
 
 	return rrpc.NewCoordinator(rrpc.NewNetworkData(ncnfgs), s.RrpcSecretKey)
 }
+
+func (s *SystemConfig) GetServerConfig(hostname string) *ServerConfig {
+	for _, srv := range s.ServerConfigs {
+		if srv.Hostname == hostname {
+			return srv
+		}
+	}
+
+	return nil
+}
