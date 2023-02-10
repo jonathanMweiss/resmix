@@ -2,7 +2,7 @@ package rrpc
 
 import (
 	"bytes"
-	"fmt"
+	"github.com/sirupsen/logrus"
 	"net"
 	"sync"
 
@@ -23,6 +23,7 @@ type RrpcServer interface {
 }
 
 type server struct {
+	log *logrus.Entry
 	Services
 	ServerCoordinator
 
@@ -58,6 +59,12 @@ func newServerService(s Services, network ServerCoordinator, options ...grpc.Ser
 	gsrvr := grpc.NewServer(options...)
 
 	srvr := &server{
+		log: logrus.WithFields(
+			logrus.Fields{
+				"component": "rrpc.server",
+				"address":   network.GetHostname(network.GetSecretKey().Public()),
+			},
+		),
 		Services:          s,
 		ServerCoordinator: network,
 
@@ -139,7 +146,8 @@ func (s *server) DirectCall(server Server_DirectCallServer) error {
 		}
 
 		if err := merkleSign([]MerkleCertifiable{(*receiverNote)(request.Note)}, s.skey); err != nil {
-			fmt.Println("couldn't sign the note. exiting stream:", err.Error())
+			s.log.Errorln("couldn't sign note. existing direct call stream: ", err.Error())
+
 			return status.Error(codes.Internal, err.Error())
 		}
 
@@ -150,7 +158,8 @@ func (s *server) DirectCall(server Server_DirectCallServer) error {
 
 		err = server.Send(&response)
 		if err != nil {
-			fmt.Println("server faced an error while sending a response: ", err.Error())
+			s.log.Errorln("faced an error while sending a response: ", err.Error())
+
 			return status.Error(codes.Internal, err.Error())
 		}
 	}

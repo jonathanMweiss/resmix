@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/jonathanMweiss/resmix/internal/msync"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/credentials/insecure"
 	"math"
 	"sync"
@@ -38,6 +39,7 @@ type client struct {
 
 	context.Context
 	context.CancelFunc
+	log *logrus.Entry
 }
 
 // implementing GCable interface
@@ -69,18 +71,21 @@ func (c *client) setServerStream() error {
 	c.wg.Add(3)
 	go func() {
 		defer c.wg.Done()
+
+		entry := c.log.WithField("method", "client::streamRecv")
+
 		for {
 			msg, err := stream.Recv()
 			if isEOFFromServer(err) {
-				fmt.Println("client::streamSend closing")
+				entry.Debugln("client::streamSend closing")
 				return
 			}
 			if err != nil {
-				fmt.Println("client::streamSend error: ", err.Error())
+				entry.Errorln("client::streamSend error: ", err.Error())
 				return
 			}
 			if err := c.VerifyAndDispatch(msg); err != nil {
-				fmt.Println("client::streamSend:: dispatch error: ", err.Error())
+				entry.Warnln("client::streamSend:: dispatch error: ", err.Error())
 				continue
 			}
 
@@ -93,6 +98,9 @@ func (c *client) setServerStream() error {
 
 	go func() {
 		defer c.wg.Done()
+
+		entry := c.log.WithField("method", "client::streamSend")
+
 		for {
 			select {
 			case task := <-c.directCallSendChannel:
@@ -108,7 +116,7 @@ func (c *client) setServerStream() error {
 					},
 				}
 				if err := merkleSign([]MerkleCertifiable{(*senderNote)(rqst.Note)}, c.secretKey); err != nil {
-					fmt.Println("streaming error: ", err.Error())
+					entry.Errorln("signing error: ", err.Error())
 					task.Err <- err
 					return
 				}
@@ -116,11 +124,11 @@ func (c *client) setServerStream() error {
 				if err := stream.Send(rqst); err != nil {
 					// This is a send task, no response just yet, because we should wait on response too
 					task.Err <- err
-					fmt.Println("streaming error: ", err.Error())
+					entry.Errorln("client::streamSend:: send error: ", err.Error())
 					continue
 				}
 			case <-c.Done():
-				fmt.Println("closing direct call send stream")
+				entry.Debugln("client::streamSend:: closing direct call send stream")
 				return
 			}
 
@@ -140,7 +148,7 @@ func (c *client) setServerStream() error {
 func (c *client) VerifyAndDispatch(msg *DirectCallResponse) error {
 	reqst, ok := c.waitingTasks.LoadAndDelete(msg.Note.Calluuid)
 	if !ok {
-		fmt.Println("client::VerifyAndDispatch: could not find task!")
+		c.log.Debugln("client::VerifyAndDispatch: could not find task!")
 		return nil
 	}
 
@@ -179,7 +187,9 @@ func newClient(serverAddress string, network Coordinator) *client {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	c := client{
+		log:          logrus.WithFields(logrus.Fields{"component": "rrpc.client", "from": ownAddress, "to": serverAddress}),
 		myAddr:       ownAddress,
 		serverAddr:   serverAddress,
 		serverClient: newServerClient(cc),

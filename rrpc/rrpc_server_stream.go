@@ -3,7 +3,6 @@ package rrpc
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"github.com/jonathanMweiss/resmix/internal/codec"
 	"io"
 	"time"
@@ -119,6 +118,8 @@ type rrpcTask struct {
 func (s *server) collector() {
 	defer s.WaitGroup.Done()
 
+	entry := s.log.WithField("method", "collector")
+
 	ttl := time.Second * 5
 	timeToLiveTicker := time.NewTicker(ttl)
 
@@ -164,7 +165,8 @@ func (s *server) collector() {
 				}
 
 				if err := merkleSign(signables, s.skey); err != nil {
-					fmt.Println("server: couldn't sign rrpc response", err)
+					entry.Errorln("couldn't sign rrpc response", err)
+
 					return
 				}
 

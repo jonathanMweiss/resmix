@@ -3,6 +3,7 @@ package rrpc
 import (
 	"fmt"
 	"github.com/jonathanMweiss/resmix/internal/crypto"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -45,6 +46,7 @@ type ServerCoordinator interface {
 
 // coordinator implements the ServerCoordinator interface
 type coordinator struct {
+	log *logrus.Entry
 	NetworkData
 	*MerkleCertVerifier
 
@@ -82,6 +84,7 @@ func NewCoordinator(netdata NetworkData, skey crypto.PrivateKey) ServerCoordinat
 	ctx = addIPToContext(ctx, myAddress)
 
 	return &coordinator{
+		log:         logrus.WithFields(logrus.Fields{"component": "rrpc.coordinator"}),
 		NetworkData: netdata,
 		skey:        skey,
 
@@ -113,13 +116,13 @@ func (n *coordinator) Close() error {
 	var err error
 	for _, conn := range n.relayConns {
 		if err = conn.Close(); err != nil {
-			fmt.Println("error closing relay connection:", err)
+			n.log.Warnln("error closing relay connection:", err)
 		}
 	}
 
 	for _, conn := range n.serverConns {
 		if err = conn.Close(); err != nil {
-			fmt.Println("error closing server connection:", err)
+			n.log.Warnln("error closing server connection:", err)
 		}
 	}
 

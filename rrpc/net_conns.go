@@ -2,8 +2,8 @@ package rrpc
 
 import (
 	"context"
-	"fmt"
 	"github.com/jonathanMweiss/resmix/internal/msync"
+	"github.com/sirupsen/logrus"
 	"io"
 	"sync"
 	"time"
@@ -15,6 +15,8 @@ import (
 )
 
 type RelayConn struct {
+	log *logrus.Entry
+
 	*grpc.ClientConn
 	RelayClient
 	context.Context
@@ -56,6 +58,8 @@ func newRelayConn(ctx context.Context, address string, index int) (*RelayConn, e
 
 	ctx, cancel := context.WithCancel(ctx)
 	r := &RelayConn{
+		log: logrus.WithFields(logrus.Fields{"component": "rrpc.relayConn", "index": index}),
+
 		ClientConn:  cc,
 		RelayClient: relayClient,
 		Context:     ctx,
@@ -103,15 +107,15 @@ func (r *RelayConn) proofSendingStream(sendProofStream Relay_SendProofClient) {
 		select {
 		case <-r.Context.Done():
 			if err := sendProofStream.CloseSend(); err != nil {
-				fmt.Println("closing streamProof failed:", err)
+				r.log.Warnln("closing streamProof failed:", err)
 			}
 
 			return
 		case prf := <-r.sendProofChan:
 			if err := sendProofStream.Send(&Proofs{
-				Proofs: []*Proof{prf}, // todo send more than one.
+				Proofs: []*Proof{prf},
 			}); err != nil {
-				fmt.Println("sending proof error:", err)
+				r.log.Warnln("sending proof error:", err)
 			}
 		}
 	}
@@ -153,22 +157,27 @@ func (r *RelayConn) sendRequest(rqst relayConnRequest) {
 func (r *RelayConn) parcelStream(stream Relay_RelayStreamClient) {
 	defer r.WaitGroup.Done()
 
+	entry := r.log.WithField("method", "parcelStream")
+
 	var rqst *RelayStreamRequest
 	for {
 		select {
 		case <-r.Context.Done():
 			if err := stream.CloseSend(); err != nil {
-				fmt.Println("closing stream failed:", err)
+				entry.Errorln("closing stream failed: ", err)
 			}
+
 			return
 		case rqst = <-r.requests:
 			err := stream.Send(rqst)
 			if err == io.EOF {
-				fmt.Printf("relay(%d) parcel stream closeing\n", r.index)
+				entry.Debugln("stream closing")
+
 				return
 			}
+
 			if err != nil {
-				fmt.Printf("relay(%d) parcel stream error: %v\n", r.index, err)
+				entry.Errorln("stream error: ", err)
 			}
 		}
 	}
@@ -176,6 +185,8 @@ func (r *RelayConn) parcelStream(stream Relay_RelayStreamClient) {
 
 func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 	defer r.WaitGroup.Done()
+
+	entry := r.log.WithField("method", "receiveParcels")
 
 	for {
 
@@ -185,7 +196,8 @@ func (r *RelayConn) receiveParcels(stream Relay_RelayStreamClient) {
 		}
 
 		if err != nil {
-			fmt.Printf("relay(%d) receive parcel stream error: %v\n", r.index, err)
+			entry.Errorln("stream error: ", err)
+
 			return
 		}
 
@@ -230,6 +242,7 @@ type ServerConn struct {
 	toSend     chan *CallStreamRequest
 	outputChan chan *CallStreamResponse
 	wg         sync.WaitGroup
+	log        *logrus.Entry
 }
 
 func (c *ServerConn) Close() error {
@@ -262,6 +275,7 @@ func newServerConn(ctx context.Context, address string, output chan *CallStreamR
 	}
 
 	conn := &ServerConn{
+		log:        logrus.WithFields(logrus.Fields{"component": "rrpc.serverconn"}),
 		cc:         cc,
 		clientConn: con,
 		stream:     stream,
@@ -277,15 +291,20 @@ func newServerConn(ctx context.Context, address string, output chan *CallStreamR
 
 	go func() {
 		defer conn.wg.Done()
+
 		var tosend *CallStreamRequest
+
+		entry := conn.log.WithField("method", "StreamSend")
 
 		for {
 			select {
 			case <-connctx.Done():
 				if err := conn.stream.CloseSend(); err != nil {
-					fmt.Println("serverstream_send:: closing  failed:", err)
+					entry.Errorln("closing stream failed: ", err)
 				}
+
 				return
+
 			case tosend = <-conn.toSend:
 			}
 
@@ -295,13 +314,15 @@ func newServerConn(ctx context.Context, address string, output chan *CallStreamR
 			}
 
 			if err != nil {
-				fmt.Println("serverconn::sending stream error:", err)
+				conn.log.Errorln("stream error:", err)
 			}
 		}
 	}()
 
 	go func() {
 		defer conn.wg.Done()
+
+		entry := conn.log.WithField("method", "StreamRecv")
 
 		for {
 			o, err := conn.stream.Recv()
@@ -310,7 +331,8 @@ func newServerConn(ctx context.Context, address string, output chan *CallStreamR
 			}
 
 			if err != nil {
-				fmt.Println("serverconn::receiving stream error:", err)
+				entry.Errorln("stream error:", err)
+
 				continue
 			}
 
