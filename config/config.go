@@ -17,9 +17,9 @@ func init() {
 
 	copy(cpy, seed)
 
-	h := sha3.NewShake128()
+	randomReader = sha3.NewShake128()
 
-	h.Write(cpy)
+	randomReader.Write(cpy)
 }
 
 // CreateSystemConfigs
@@ -45,7 +45,7 @@ func CreateSystemConfigs(addresses []string, polyDegree, numLayers int) *SystemC
 
 	return &SystemConfig{
 		ServerConfigs: srvrs,
-		LogicalMixes:  top,
+		Topology:      top,
 	}
 }
 

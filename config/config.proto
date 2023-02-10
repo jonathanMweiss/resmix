@@ -14,7 +14,7 @@ message IBEConfigs{
 
 message SystemConfig{
   repeated ServerConfig ServerConfigs = 1;
-  Topology LogicalMixes = 2;
+  Topology topology = 2;
 }
 
 message Layer{
