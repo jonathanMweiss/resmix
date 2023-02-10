@@ -1,6 +1,7 @@
 package resmix
 
 import (
+	"context"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/rrpc"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,19 @@ func TestSystem(t *testing.T) {
 	rrpcServers := launchServers(t, mixServers)
 	defer closeServers(rrpcServers)
 
+	// todo make all mixnets dial.
+	// todo, make test client? nah, he should be able to call the function he wants directly.
+
+	for _, mixServer := range mixServers {
+		require.NoError(t, mixServer.Dial())
+
+		_, err := mixServer.NewRound(context.Background(), &NewRoundRequest{
+			Round:                    0,
+			MixIdsToExpectedWorkload: nil,
+		})
+
+		require.NoError(t, err)
+	}
 }
 
 func closeMixServers(servers []*server) {

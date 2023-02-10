@@ -1,6 +1,7 @@
 package resmix
 
 import (
+	"fmt"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"github.com/jonathanMweiss/resmix/internal/msync"
@@ -12,6 +13,7 @@ type ResMixServer interface {
 
 	// Dial is used to connect to other mixes.
 	Dial() error
+	Close() error
 	GetCoordinator() rrpc.ServerCoordinator
 }
 type (
@@ -60,7 +62,7 @@ type server struct {
 
 	States msync.Map[Round, RoundState]
 
-	Connections map[hostname]MixClient
+	Connections map[hostname]rrpc.ClientConn
 
 	rrpc.ServerCoordinator
 }
@@ -70,7 +72,31 @@ func (s *server) GetCoordinator() rrpc.ServerCoordinator {
 }
 
 func (s *server) Dial() error {
+	for _, peer := range s.Configurations.ServerConfig.Peers {
+		host := peer.Hostname
+
+		c, err := rrpc.NewConnection(host, s.Configurations.RrpcConfigs)
+		if err != nil {
+			if err := s.Close(); err != nil {
+				return fmt.Errorf("failed to connect, then failed to close connections: %w", err)
+			}
+
+			return err
+		}
+
+		s.Connections[hostname(host)] = c
+	}
 	// will set up connections to other mixes.
+
+	return nil
+}
+
+func (s *server) Close() error {
+	for _, conn := range s.Connections {
+		if err := conn.Close(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

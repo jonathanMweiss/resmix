@@ -6,6 +6,7 @@ import (
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"github.com/jonathanMweiss/resmix/internal/msync"
+	"github.com/jonathanMweiss/resmix/rrpc"
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -28,6 +29,7 @@ func NewMixServer(cnfgs *ResmixConfigs) (MixServer, error) {
 		DecryptionNode: nd,
 		Configurations: cnfgs,
 		States:         msync.Map[Round, RoundState]{},
+		Connections:    map[hostname]rrpc.ClientConn{},
 	}, nil
 }
 
