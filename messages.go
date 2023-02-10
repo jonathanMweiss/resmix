@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"golang.org/x/crypto/sha3"
 	"math"
+	"runtime"
 )
 
 const defaultMessageStoreageLocation = "message.storage"
@@ -21,7 +23,7 @@ type MessageGenerator struct {
 
 type Onion []byte
 
-func (c Onion) extractMixId(topology *config.Topology) string {
+func (c Onion) ExtractMixName(topology *config.Topology) string {
 	n := len(c)
 	layer := binary.BigEndian.Uint32(c[n-8 : n-4])
 	posInLayer := binary.BigEndian.Uint32(c[n-4:])
@@ -29,7 +31,7 @@ func (c Onion) extractMixId(topology *config.Topology) string {
 	return topology.Layers[layer].LogicalMixes[posInLayer].Name
 }
 
-func (c Onion) GetCipher() *tibe.Cipher {
+func (c Onion) ExtractCipher() *tibe.Cipher {
 	cphr := &tibe.Cipher{}
 	if err := cphr.SetBytes(c[:len(c)-8]); err != nil {
 		panic("invalid onion")
@@ -64,8 +66,6 @@ func (m MessageGenerator) onionWrap(
 }
 
 func NewMessageGenerator(sysConfigs *config.SystemConfig) *MessageGenerator {
-	// TODO: get MasterPublicKey for each mix in a map.
-
 	m := &MessageGenerator{
 		SystemConfig:            sysConfigs,
 		messageStoreageLocation: defaultMessageStoreageLocation,
@@ -84,14 +84,50 @@ func NewMessageGenerator(sysConfigs *config.SystemConfig) *MessageGenerator {
 	return m
 }
 
-func (m *MessageGenerator) GenerateMessages(n, round int) error {
-	for i := 0; i < n; i++ {
-		randomMsg := make([]byte, messageSize)
-		_, _ = rand.Read(randomMsg)
-		m.generateOnions(randomMsg, round)
+func (m *MessageGenerator) GenerateMessages(n, round int) []Onion {
+	// todo: attempt to load it from file.
+	return m.createOnions(n, round)
+}
+
+func (m *MessageGenerator) createOnions(n int, round int) []Onion {
+	onions := make([]Onion, 0, n*int(math.Pow(float64(len(m.SystemConfig.Topology.Layers)), 2)))
+
+	N := runtime.NumCPU()
+	results := make(chan []Onion, 2*N)
+
+	partitionSize := n / N
+
+	current := 0
+
+	for i := 0; i < N; i++ {
+		var numWork int
+		if i+1 == N {
+			numWork = n - current
+		} else {
+			numWork = partitionSize
+		}
+
+		current += partitionSize
+
+		go func() {
+			for i := 0; i < numWork; i++ {
+				randomMsg := make([]byte, messageSize)
+				_, _ = rand.Read(randomMsg)
+
+				results <- m.generateOnions(randomMsg, round)
+			}
+		}()
+
 	}
 
-	return nil
+	for i := 0; i < n; i++ {
+		if i%100 == 0 {
+			fmt.Println("generated", i, "messages")
+		}
+		onions = append(onions, <-results...)
+	}
+
+	return onions
 }
 
 func (m *MessageGenerator) generateOnions(msg []byte, round int) []Onion {
@@ -121,6 +157,7 @@ func (m *MessageGenerator) generateOnions(msg []byte, round int) []Onion {
 		// store onion
 		onions = append(onions, onion)
 	}
+
 	return onions
 }
 

@@ -30,6 +30,9 @@ func TestSystem(t *testing.T) {
 
 		require.NoError(t, err)
 	}
+
+	mg := NewMessageGenerator(sys)
+	msgs := mg.GenerateMessages(1000, 0)
 }
 
 func closeMixServers(servers []*server) {

@@ -17,14 +17,14 @@ func TestOnions(t *testing.T) {
 	onions := gen.generateOnions([]byte("hello world"), round)
 	for _, onion := range onions {
 		for i := 0; i < numLayers; i++ {
-			mixName := onion.extractMixId(sys.Topology)
+			mixName := onion.ExtractMixName(sys.Topology)
 			hostname := sys.Topology.Mixes[mixName].Hostname
 			cnfg := sys.GetServerConfig(hostname)
 
 			nd, err := cnfg.CreateTIBENode()
 			require.NoError(t, err)
 
-			cphr := onion.GetCipher()
+			cphr := onion.ExtractCipher()
 			dc := nd.Decrypter(computeId(hostname, round))
 			onion, err = dc.Decrypt(*cphr)
 			require.NoError(t, err)
