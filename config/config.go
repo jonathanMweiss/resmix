@@ -4,8 +4,23 @@ import (
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"github.com/jonathanMweiss/resmix/rrpc"
+	"golang.org/x/crypto/sha3"
 	"strconv"
 )
+
+const seed = "there is nothing up my sleeve"
+
+var randomReader sha3.ShakeHash
+
+func init() {
+	cpy := make([]byte, len(seed))
+
+	copy(cpy, seed)
+
+	h := sha3.NewShake128()
+
+	h.Write(cpy)
+}
 
 // CreateSystemConfigs
 // polyDegree is the degree of the polynomial used for DKG and VSS. determines the threshold of VSS (degree + 1).
@@ -111,7 +126,7 @@ func vsspolynomialsSetup(numPolynomials int, polyDegree int) ([]tibe.Poly, [][]b
 	mPolynomials := make([][]byte, numPolynomials)
 	polynomials := make([]tibe.Poly, numPolynomials)
 	for i := 0; i < numPolynomials; i++ {
-		polynomials[i] = tibe.NewRandomPoly(polyDegree)
+		polynomials[i] = tibe.NewRandomPoly(polyDegree, randomReader)
 
 		bts, err := polynomials[i].Marshal()
 		if err != nil {
@@ -125,7 +140,7 @@ func vsspolynomialsSetup(numPolynomials int, polyDegree int) ([]tibe.Poly, [][]b
 }
 
 func DKGSetup(addresses []string, d int) ([]tibe.PolyShare, [][]byte) {
-	dkgPoly := tibe.NewRandomPoly(d) // so we need half +1 to reconstruct
+	dkgPoly := tibe.NewRandomPoly(d, randomReader) // so we need half +1 to reconstruct
 
 	shrs := dkgPoly.CreateShares(len(addresses))
 

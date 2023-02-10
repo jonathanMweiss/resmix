@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/cloudflare/circl/ecc/bls12381"
+	"io"
 	"sort"
 	"sync"
 )
@@ -53,11 +54,16 @@ func (p *PolyShare) ComputePublicKey() PublicKey {
 }
 
 // NewRandomPoly returns a new polynomial with a random secret and random coefficients.
-func NewRandomPoly(degree int) Poly {
+func NewRandomPoly(degree int, reader ...io.Reader) Poly {
+	if len(reader) == 0 {
+		reader = []io.Reader{rand.Reader}
+	}
+
 	coefs := make([]*bls12381.Scalar, degree+1)
+
 	for i := range coefs {
 		ai := &bls12381.Scalar{}
-		if err := ai.Random(rand.Reader); err != nil {
+		if err := ai.Random(reader[0]); err != nil {
 			panic(err)
 		}
 

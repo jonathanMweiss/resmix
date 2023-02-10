@@ -1,0 +1,6 @@
+This project is a POC!
+It was not reviewed by anyone else but me.
+The code is not optimized, and the security is not guaranteed
+and it shouldn't be used in a real product without proper care.
+
+For instance, the config relies on `sha3.NewShake128` to generate its random polynomials.
