@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"golang.org/x/crypto/sha3"
 	"math"
+	"os"
 	"runtime"
 )
 
@@ -50,7 +52,7 @@ func (m MessageGenerator) onionWrap(
 		return Onion{}, err
 	}
 
-	bf := bytes.NewBuffer(make([]byte, 0, len(msg)+cipher.Size()+4*2))
+	bf := bytes.NewBuffer(make([]byte, 0, cipher.Size()+4*2))
 	cipher.ToBuffer(bf)
 
 	numBuf := [4]byte{}
@@ -83,9 +85,38 @@ func NewMessageGenerator(sysConfigs *config.SystemConfig) *MessageGenerator {
 	return m
 }
 
-func (m *MessageGenerator) MakeMessagesForClients(numClients, round int) []Onion {
-	// todo: attempt to load it from file.
-	return m.generateOnions(numClients, round)
+func (m *MessageGenerator) LoadOrCreateMessagesForClients(numClients, round int) ([]Onion, error) {
+	_, err := os.Stat(m.messageStoreageLocation)
+	if err == nil {
+		return m.loadMessages()
+	}
+
+	onions := m.generateOnions(numClients, round)
+
+	bts, err := json.Marshal(onions)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := os.WriteFile(m.messageStoreageLocation, bts, 0777); err != nil {
+		return nil, err
+	}
+
+	return onions, nil
+}
+
+func (m *MessageGenerator) loadMessages() ([]Onion, error) {
+	content, err := os.ReadFile(m.messageStoreageLocation)
+	if err != nil {
+		return nil, err
+	}
+
+	onions := make([]Onion, 0)
+	if err := json.Unmarshal(content, &onions); err != nil {
+		return nil, err
+	}
+
+	return onions, nil
 }
 
 func (m *MessageGenerator) generateOnions(numClients int, round int) []Onion {

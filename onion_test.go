@@ -9,7 +9,7 @@ import (
 func TestOnions(t *testing.T) {
 	numLayers := 10
 
-	sys := config.CreateLocalSystemConfigs(10, 2, numLayers)
+	sys := config.CreateLocalSystemConfigs(10, 5, numLayers)
 	gen := NewMessageGenerator(sys)
 
 	round := 0
@@ -37,11 +37,11 @@ func TestOnions(t *testing.T) {
 func TestWriteOnionDistribution(t *testing.T) {
 	numLayers := 10
 
-	sys := config.CreateLocalSystemConfigs(10, 2, numLayers)
+	sys := config.CreateLocalSystemConfigs(10, 5, numLayers)
 	gen := NewMessageGenerator(sys)
 
 	round := 0
-	onions := gen.MakeMessagesForClients(1000, round)
+	onions, _ := gen.LoadOrCreateMessagesForClients(100, round)
 
 	onionsPerHostname := make(map[string]int)
 	for _, onion := range onions {

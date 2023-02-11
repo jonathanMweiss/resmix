@@ -12,7 +12,7 @@ import (
 func TestSystem(t *testing.T) {
 	numServers := 10
 
-	sys := config.CreateLocalSystemConfigs(numServers, 2, 6)
+	sys := config.CreateLocalSystemConfigs(numServers, 5, 6)
 
 	mixServers := createServers(t, sys)
 	defer closeMixServers(mixServers)
@@ -32,7 +32,7 @@ func TestSystem(t *testing.T) {
 	}
 
 	//mg := NewMessageGenerator(sys)
-	//msgs := mg.MakeMessagesForClients(1000, 0)
+	//msgs := mg.LoadOrCreateMessagesForClients(1000, 0)
 }
 
 func closeMixServers(servers []*server) {
