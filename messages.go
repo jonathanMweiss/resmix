@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
-	"fmt"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"golang.org/x/crypto/sha3"
@@ -84,53 +83,50 @@ func NewMessageGenerator(sysConfigs *config.SystemConfig) *MessageGenerator {
 	return m
 }
 
-func (m *MessageGenerator) GenerateMessages(n, round int) []Onion {
+func (m *MessageGenerator) MakeMessagesForClients(numClients, round int) []Onion {
 	// todo: attempt to load it from file.
-	return m.createOnions(n, round)
+	return m.generateOnions(numClients, round)
 }
 
-func (m *MessageGenerator) createOnions(n int, round int) []Onion {
-	onions := make([]Onion, 0, n*int(math.Pow(float64(len(m.SystemConfig.Topology.Layers)), 2)))
+func (m *MessageGenerator) generateOnions(numClients int, round int) []Onion {
+	onions := make([]Onion, 0, numClients*int(math.Pow(float64(len(m.SystemConfig.Topology.Layers)), 2)))
 
 	N := runtime.NumCPU()
 	results := make(chan []Onion, 2*N)
 
-	partitionSize := n / N
+	partitionSize := numClients / N
 
 	current := 0
 
 	for i := 0; i < N; i++ {
-		var numWork int
+		var numClientsPerThread int
 		if i+1 == N {
-			numWork = n - current
+			numClientsPerThread = numClients - current
 		} else {
-			numWork = partitionSize
+			numClientsPerThread = partitionSize
 		}
 
 		current += partitionSize
 
 		go func() {
-			for i := 0; i < numWork; i++ {
+			for i := 0; i < numClientsPerThread; i++ {
 				randomMsg := make([]byte, messageSize)
 				_, _ = rand.Read(randomMsg)
 
-				results <- m.generateOnions(randomMsg, round)
+				results <- m.generateOnion(randomMsg, round)
 			}
 		}()
 
 	}
 
-	for i := 0; i < n; i++ {
-		if i%100 == 0 {
-			fmt.Println("generated", i, "messages")
-		}
+	for i := 0; i < numClients; i++ {
 		onions = append(onions, <-results...)
 	}
 
 	return onions
 }
 
-func (m *MessageGenerator) generateOnions(msg []byte, round int) []Onion {
+func (m *MessageGenerator) generateOnion(msg []byte, round int) []Onion {
 
 	// choose random mixes in each layer. // do so according to the random message. this is a POC.
 	numberOfChains := len(m.SystemConfig.Topology.Layers[0].LogicalMixes)
