@@ -138,7 +138,8 @@ func (s *server) DirectCall(server Server_DirectCallServer) error {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 
-		serviceOut, serviceError := methodDesc.Handler(svc.Server, server.Context(), createDecodeFunc(request.Payload))
+		ctx := insertUuidToContext(s.Context, request.Note.Calluuid)
+		serviceOut, serviceError := methodDesc.Handler(svc.Server, ctx, createDecodeFunc(request.Payload))
 
 		result, err := intoDirectCallResponse(serviceError, serviceOut)
 		if err != nil {

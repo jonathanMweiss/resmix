@@ -2,9 +2,9 @@ package resmix
 
 import (
 	"context"
+	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/jonathanMweiss/resmix/config"
-	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"github.com/jonathanMweiss/resmix/internal/msync"
 	"github.com/jonathanMweiss/resmix/rrpc"
 	"golang.org/x/crypto/sha3"
@@ -48,6 +48,20 @@ func (s *server) NewRound(ctx context.Context, request *NewRoundRequest) (*NewRo
 		workloadPerMix[mixName(mName)] = int(load)
 	}
 
+	// propagate workload:
+	for _, mix := range s.Configurations.Topology.Layers[0].LogicalMixes {
+		workload, ok := workloadPerMix[mixName(mix.Name)]
+		if !ok {
+			return nil, status.Error(codes.FailedPrecondition, fmt.Sprintf("no workload for first layer mix %s", mix.Name))
+		}
+
+		curr := mix
+		for curr != nil {
+			workloadPerMix[mixName(curr.Name)] = workload
+			curr = s.Configurations.Topology.Mixes[curr.Successors[0]]
+		}
+	}
+
 	mixes := []*config.LogicalMix{}
 	for _, mix := range s.Configurations.Topology.Mixes {
 		if mix.Hostname != s.Configurations.Hostname {
@@ -69,16 +83,58 @@ func (s *server) NewRound(ctx context.Context, request *NewRoundRequest) (*NewRo
 	return &NewRoundResponse{}, nil
 }
 
-func NewMixers(hostname string, mixes []*config.LogicalMix, workloadMap tibe.Decrypter, decrypter map[mixName]int) MixHandler {
-	return nil
-}
-
 func (s *server) EndRound(ctx context.Context, request *EndRoundRequest) (*EndRoundResponse, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 func (s *server) AddMessages(ctx context.Context, request *AddMessagesRequest) (*AddMessagesResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	state, ok := s.States.Load(Round(request.Round))
+	if !ok {
+		return nil, status.Error(codes.NotFound, "round not found")
+	}
+
+	s.ValidateTotalWork(ctx)
+	state.MixHandler.AddMessages(request.Messages)
+
+	return &AddMessagesResponse{}, nil
+}
+
+func (s *server) ValidateTotalWork(ctx context.Context) {
+	// todo validate amount of messages match with the uuid.
+	return
+}
+
+func (s *server) GetCoordinator() rrpc.ServerCoordinator {
+	return s.ServerCoordinator
+}
+
+func (s *server) Dial() error {
+	for _, peer := range s.Configurations.ServerConfig.Peers {
+		host := peer.Hostname
+
+		c, err := rrpc.NewConnection(host, s.Configurations.RrpcConfigs)
+		if err != nil {
+			if err := s.Close(); err != nil {
+				return fmt.Errorf("failed to connect, then failed to close connections: %w", err)
+			}
+
+			return err
+		}
+
+		s.Connections[hostname(host)] = c
+	}
+	// will set up connections to other mixes.
+
+	return nil
+}
+
+func (s *server) Close() error {
+	for _, conn := range s.Connections {
+		if err := conn.Close(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

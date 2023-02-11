@@ -207,7 +207,8 @@ func (s *server) runTask(v *rrpcTask) []*CallStreamResponse {
 		return s.erroToCallStreamResponseArray(v, err)
 	}
 
-	resp, err := v.method.Handler(v.service.Server, s.Context, createDecodeFunc(payload))
+	ctx := insertUuidToContext(s.Context, v.savedNote.Calluuid)
+	resp, err := v.method.Handler(v.service.Server, ctx, createDecodeFunc(payload))
 	if err != nil {
 		return s.erroToCallStreamResponseArray(v, err)
 	}

@@ -20,18 +20,23 @@ func TestSystem(t *testing.T) {
 	rrpcServers := launchServers(t, mixServers)
 	defer closeServers(rrpcServers)
 
+	mixToOnions := genMsgsForTest(t, sys)
+
+	mixToWorkload := make(map[string]uint64)
+	for s, onions := range mixToOnions {
+		mixToWorkload[s] = uint64(len(onions))
+	}
+
 	for _, mixServer := range mixServers {
 		require.NoError(t, mixServer.Dial())
 
 		_, err := mixServer.NewRound(context.Background(), &NewRoundRequest{
 			Round:                    0,
-			MixIdsToExpectedWorkload: nil,
+			MixIdsToExpectedWorkload: mixToWorkload,
 		})
 
 		require.NoError(t, err)
 	}
-
-	mixToOnions := genMsgsForTest(t, sys)
 
 	for _, mixServer := range mixServers {
 		firstMix := mixServer.Configurations.ServerConfig.GetMixesSortedByLayer()[0]
