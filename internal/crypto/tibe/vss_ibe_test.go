@@ -128,3 +128,38 @@ func BenchmarkReconstructIbeDecryptor(b *testing.B) {
 		require.NoError(b, err)
 	}
 }
+
+func BenchmarkEncryptionDecryption(b *testing.B) {
+	ns := NewNode(NewRandomPoly(50))
+
+	ID := []byte("key1")
+	msg := []byte("check")
+
+	b.Run("Encryption", func(b *testing.B) {
+		pk, err := ns.GetMasterPublicKey()
+		require.NoError(b, err)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := pk.Encrypt(ID, msg)
+			require.NoError(b, err)
+		}
+	})
+
+	b.Run("Decryption", func(b *testing.B) {
+		pk, err := ns.GetMasterPublicKey()
+		require.NoError(b, err)
+
+		c, err := pk.Encrypt(ID, msg)
+		require.NoError(b, err)
+
+		sk := ns.Decrypter(ID)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := sk.Decrypt(c.Copy())
+			require.NoError(b, err)
+		}
+	})
+
+}
