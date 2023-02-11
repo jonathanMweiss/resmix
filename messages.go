@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"golang.org/x/crypto/sha3"
@@ -24,12 +25,12 @@ type MessageGenerator struct {
 
 type Onion []byte
 
-func (c Onion) ExtractMixName(topology *config.Topology) string {
+func (c Onion) ExtractMixConfig(topology *config.Topology) *config.LogicalMix {
 	n := len(c)
 	layer := binary.BigEndian.Uint32(c[n-8 : n-4])
 	posInLayer := binary.BigEndian.Uint32(c[n-4:])
 
-	return topology.Layers[layer].LogicalMixes[posInLayer].Name
+	return topology.Layers[layer].LogicalMixes[posInLayer]
 }
 
 func (c Onion) ExtractCipher() *tibe.Cipher {
@@ -39,6 +40,24 @@ func (c Onion) ExtractCipher() *tibe.Cipher {
 	}
 
 	return cphr
+}
+
+func GroupOnionsByMixName(onions []Onion, topology *config.Topology) map[string][]Onion {
+	numServers := len(topology.Layers[0].LogicalMixes)
+
+	m := map[string][]Onion{}
+
+	for _, o := range onions {
+		mix := o.ExtractMixConfig(topology)
+
+		if _, ok := m[mix.Name]; !ok {
+			m[mix.Name] = make([]Onion, 0, len(onions)/numServers)
+		}
+
+		m[mix.Name] = append(m[mix.Name], o)
+	}
+
+	return m
 }
 
 func (m MessageGenerator) onionWrap(
@@ -85,10 +104,12 @@ func NewMessageGenerator(sysConfigs *config.SystemConfig) *MessageGenerator {
 	return m
 }
 
-func (m *MessageGenerator) LoadOrCreateMessagesForClients(numClients, round int) ([]Onion, error) {
-	_, err := os.Stat(m.messageStoreageLocation)
+// LoadOrCreateMessages returns numclients * sqrt(2*numChains) onions
+func (m *MessageGenerator) LoadOrCreateMessages(numClients, round int) ([]Onion, error) {
+	fname := fmt.Sprintf("%v.%v", numClients, m.messageStoreageLocation)
+	_, err := os.Stat(fname)
 	if err == nil {
-		return m.loadMessages()
+		return m.loadMessages(fname)
 	}
 
 	onions := m.generateOnions(numClients, round)
@@ -98,15 +119,15 @@ func (m *MessageGenerator) LoadOrCreateMessagesForClients(numClients, round int)
 		return nil, err
 	}
 
-	if err := os.WriteFile(m.messageStoreageLocation, bts, 0777); err != nil {
+	if err := os.WriteFile(fname, bts, 0777); err != nil {
 		return nil, err
 	}
 
 	return onions, nil
 }
 
-func (m *MessageGenerator) loadMessages() ([]Onion, error) {
-	content, err := os.ReadFile(m.messageStoreageLocation)
+func (m *MessageGenerator) loadMessages(fname string) ([]Onion, error) {
+	content, err := os.ReadFile(fname)
 	if err != nil {
 		return nil, err
 	}

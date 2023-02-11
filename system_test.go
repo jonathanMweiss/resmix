@@ -31,8 +31,44 @@ func TestSystem(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	//mg := NewMessageGenerator(sys)
-	//msgs := mg.LoadOrCreateMessagesForClients(1000, 0)
+	mixToOnions := genMsgsForTest(t, sys)
+
+	for _, mixServer := range mixServers {
+		firstMix := mixServer.Configurations.ServerConfig.GetMixesSortedByLayer()[0]
+		onions := mixToOnions[firstMix]
+
+		_, err := mixServer.AddMessages(context.Background(), &AddMessagesRequest{
+			Round: 0,
+			Messages: []*Messages{
+				{
+					Messages:        onionsToRepeatedByteArrays(onions),
+					PhysicalSender:  []byte(config.GenesisName),
+					LogicalSender:   []byte(config.GenesisName),
+					LogicalReceiver: []byte(firstMix),
+				},
+			},
+		})
+
+		require.NoError(t, err)
+	}
+}
+
+func onionsToRepeatedByteArrays(onions []Onion) [][]byte {
+	res := make([][]byte, len(onions))
+
+	for i, onion := range onions {
+		res[i] = onion
+	}
+
+	return res
+}
+
+func genMsgsForTest(t *testing.T, sys *config.SystemConfig) map[string][]Onion {
+	mg := NewMessageGenerator(sys)
+	onions, err := mg.LoadOrCreateMessages(1000, 0)
+	require.NoError(t, err)
+
+	return GroupOnionsByMixName(onions, sys.Topology)
 }
 
 func closeMixServers(servers []*server) {

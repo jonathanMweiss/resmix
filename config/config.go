@@ -5,6 +5,7 @@ import (
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"github.com/jonathanMweiss/resmix/rrpc"
 	"golang.org/x/crypto/sha3"
+	"sort"
 	"strconv"
 )
 
@@ -212,6 +213,10 @@ func (s *ServerConfig) setMixNames(top *Topology) {
 
 		s.Mixes = append(s.Mixes, nm)
 	}
+
+	sort.Slice(s.Mixes, func(i, j int) bool {
+		return top.Mixes[s.Mixes[i]].Layer < top.Mixes[s.Mixes[j]].Layer
+	})
 }
 
 func (s *ServerConfig) CreateCoordinator() rrpc.ServerCoordinator {
@@ -238,4 +243,8 @@ func (s *SystemConfig) GetServerConfig(hostname string) *ServerConfig {
 	}
 
 	return nil
+}
+
+func (s *ServerConfig) GetMixesSortedByLayer() []string {
+	return s.Mixes
 }

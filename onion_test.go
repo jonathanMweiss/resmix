@@ -17,15 +17,15 @@ func TestOnions(t *testing.T) {
 	onions := gen.generateOnion([]byte("hello world"), round)
 	for _, onion := range onions {
 		for i := 0; i < numLayers; i++ {
-			mixName := onion.ExtractMixName(sys.Topology)
-			hostname := sys.Topology.Mixes[mixName].Hostname
-			cnfg := sys.GetServerConfig(hostname)
+			mix := onion.ExtractMixConfig(sys.Topology)
+
+			cnfg := sys.GetServerConfig(mix.Hostname)
 
 			nd, err := cnfg.CreateTIBENode()
 			require.NoError(t, err)
 
 			cphr := onion.ExtractCipher()
-			dc := nd.Decrypter(computeId(hostname, round))
+			dc := nd.Decrypter(computeId(mix.Hostname, round))
 			onion, err = dc.Decrypt(*cphr)
 			require.NoError(t, err)
 		}
@@ -41,17 +41,13 @@ func TestWriteOnionDistribution(t *testing.T) {
 	gen := NewMessageGenerator(sys)
 
 	round := 0
-	onions, _ := gen.LoadOrCreateMessagesForClients(100, round)
+	onions, err := gen.LoadOrCreateMessages(100, round)
+	require.NoError(t, err)
 
-	onionsPerHostname := make(map[string]int)
-	for _, onion := range onions {
-		mixname := onion.ExtractMixName(sys.Topology)
-		hostname := sys.Topology.Mixes[mixname].Hostname
-		onionsPerHostname[hostname] = onionsPerHostname[hostname] + 1
-	}
+	grps := GroupOnionsByMixName(onions, sys.Topology)
 
-	for host, numOnions := range onionsPerHostname {
-		t.Logf("%s: %d", host, numOnions)
+	for host, split := range grps {
+		t.Logf("%s: %d", host, len(split))
 	}
 }
 
