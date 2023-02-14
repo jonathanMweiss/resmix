@@ -48,7 +48,7 @@ type MixHandler interface {
 	// AddMessages adds messages to a LogicalMix.
 	AddMessages(messages []*Messages)
 	// GetOutputs returns the result of processings of the messages.
-	GetOutputs() []*tibe.Cipher
+	GetOutputs() []Onion
 
 	Close()
 }

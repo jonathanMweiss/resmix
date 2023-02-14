@@ -1,7 +1,7 @@
 package resmix
 
 import (
-	"fmt"
+	"crypto/rand"
 	"github.com/sirupsen/logrus"
 	"runtime"
 	"sync"
@@ -14,6 +14,7 @@ type Mixers struct {
 	states    map[mixName]*mixState
 	tasksChan chan *decryptionTask
 	log       *logrus.Entry
+	output    chan []Onion
 }
 
 func (m *Mixers) Close() {
@@ -35,7 +36,8 @@ type mixState struct {
 	totalWorkload int
 	outputs       []Onion // should be of size totalWorkload
 
-	wg sync.WaitGroup // used to wait for all messages to be processed by the threadpool.
+	wg       sync.WaitGroup // used to wait for all messages to be processed by the threadpool.
+	shuffler *Shuffler
 }
 
 // createDecryptionTasks updates state, and creates decryption tasks if the workload is complete.
@@ -78,6 +80,7 @@ func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypt
 		log:       logrus.WithField("component", "mixer"),
 		states:    make(map[mixName]*mixState),
 		tasksChan: make(chan *decryptionTask, 1000),
+		output:    make(chan []Onion, len(mixesConfigs)*2),
 	}
 
 	for i := 0; i < runtime.NumCPU(); i++ {
@@ -101,11 +104,17 @@ func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypt
 	for _, mix := range mixesConfigs {
 		mx := &mixState{
 			decryptionKey: decrypter,
+
 			predecessors:  make(map[physyicalMixName]int),
 			successors:    make([]mixName, len(mix.Successors)),
 			totalReceived: make(map[physyicalMixName]int),
+
 			totalWorkload: workloadMap[mixName(mix.Name)],
-			outputs:       make([]Onion, workloadMap[mixName(mix.Name)]),
+
+			outputs: make([]Onion, workloadMap[mixName(mix.Name)]),
+			wg:      sync.WaitGroup{},
+
+			shuffler: NewShuffler(rand.Reader),
 		}
 
 		for i, successor := range mix.Successors {
@@ -164,10 +173,13 @@ func (m *Mixers) AddMessages(messages []*Messages) {
 		if !mix.isDone() {
 			continue
 		}
-		fmt.Println("done...")
-		// set up something to collect the results.
 
-		// todo: shuffle their work, and preare a response for anyone waiting on GetOutputs.
+		go func() {
+			mix.wg.Wait()
+
+			mix.shuffler.ShuffleOnions(mix.outputs)
+			m.output <- mix.outputs
+		}()
 	}
 }
 
@@ -177,7 +189,6 @@ func (m *Mixers) UpdateMixes(scheme recoveryScheme) {
 }
 
 // Someone must wait on this?
-func (m *Mixers) GetOutputs() []*tibe.Cipher {
-	//TODO implement me
-	panic("implement me")
+func (m *Mixers) GetOutputs() []Onion {
+	return <-m.output
 }
