@@ -1,10 +1,11 @@
 package resmix
 
 import (
-	"context"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/rrpc"
 	"github.com/stretchr/testify/require"
+
+	"context"
 	"net"
 	"testing"
 )

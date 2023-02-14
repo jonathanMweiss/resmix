@@ -3,6 +3,8 @@ package resmix
 import (
 	"context"
 	"fmt"
+	"strconv"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/internal/msync"
@@ -10,7 +12,6 @@ import (
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"strconv"
 )
 
 func NewMixServer(cnfgs *ResmixConfigs) (MixServer, error) {
@@ -75,7 +76,7 @@ func (s *server) NewRound(ctx context.Context, request *NewRoundRequest) (*NewRo
 	decrypter := s.DecryptionNode.Decrypter(roundID[:])
 
 	info := RoundState{
-		MixHandler: NewMixers(s.Configurations.Hostname, mixes, decrypter, workloadPerMix),
+		MixHandler: NewMixers(s.Configurations.Topology, mixes, decrypter, workloadPerMix),
 	}
 
 	s.States.Store(Round(request.Round), info)
