@@ -1,6 +1,9 @@
 package resmix
 
 import (
+	"fmt"
+	"github.com/sirupsen/logrus"
+	"runtime"
 	"sync"
 
 	"github.com/jonathanMweiss/resmix/config"
@@ -8,7 +11,13 @@ import (
 )
 
 type Mixers struct {
-	Mixes map[mixName]*Mix
+	states    map[mixName]*mixState
+	tasksChan chan *decryptionTask
+	log       *logrus.Entry
+}
+
+func (m *Mixers) Close() {
+	close(m.tasksChan)
 }
 
 type physyicalMixName struct {
@@ -16,7 +25,7 @@ type physyicalMixName struct {
 	MixName  mixName
 }
 
-type Mix struct {
+type mixState struct {
 	decryptionKey tibe.Decrypter
 
 	predecessors  map[physyicalMixName]int // usually one, unless the host of that mix failed.
@@ -29,11 +38,68 @@ type Mix struct {
 	wg sync.WaitGroup // used to wait for all messages to be processed by the threadpool.
 }
 
+// createDecryptionTasks updates state, and creates decryption tasks if the workload is complete.
+func (m *mixState) createDecryptionTasks(message *Messages) []*decryptionTask {
+	tsks := make([]*decryptionTask, len(message.Messages))
+
+	// todo: consider some verification on input. like - not processing the same messages twice...
+	for i, bytes := range message.Messages {
+		tsks[i] = &decryptionTask{
+			wg:        &m.wg,
+			Decrypter: m.decryptionKey,
+			input:     bytes,
+			Idx:       m.totalWorkload - 1,
+			Result:    m.outputs,
+		}
+
+		m.totalWorkload -= 1
+	}
+
+	m.totalReceived[physyicalMixName{
+		Hostname: hostname(message.PhysicalSender),
+		MixName:  mixName(message.LogicalSender),
+	}] += len(message.Messages)
+
+	return tsks
+}
+
+func (m *mixState) isDone() bool {
+	for k, v := range m.predecessors {
+		if v != m.totalReceived[k] {
+			return false
+		}
+	}
+
+	return true
+}
+
 func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) MixHandler {
-	Mixes := make(map[mixName]*Mix)
+	m := &Mixers{
+		log:       logrus.WithField("component", "mixer"),
+		states:    make(map[mixName]*mixState),
+		tasksChan: make(chan *decryptionTask, 1000),
+	}
+
+	for i := 0; i < runtime.NumCPU(); i++ {
+		go func() {
+			for task := range m.tasksChan {
+				cipher := task.input.ExtractCipher()
+				outOnion, err := task.Decrypter.Decrypt(*cipher)
+				if err != nil {
+					m.log.Errorln("failed to decrypt message", err)
+				}
+
+				// either nil/ or the decrypted message.
+				task.Result[task.Idx] = outOnion
+				task.wg.Done()
+			}
+		}()
+	}
+
+	// todo: consider more threads for different operations.
 
 	for _, mix := range mixesConfigs {
-		m := &Mix{
+		mx := &mixState{
 			decryptionKey: decrypter,
 			predecessors:  make(map[physyicalMixName]int),
 			successors:    make([]mixName, len(mix.Successors)),
@@ -42,14 +108,16 @@ func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypt
 			outputs:       make([]Onion, workloadMap[mixName(mix.Name)]),
 		}
 
-		for i, successor := range m.successors {
-			m.successors[i] = successor
+		for i, successor := range mix.Successors {
+			mx.successors[i] = mixName(successor)
 		}
 
 		for _, predecessor := range mix.Predecessors {
 			host := hostname(config.GenesisName)
+			workload := mx.totalWorkload
 			if predecessor != config.GenesisName {
 				host = hostname(topo.Mixes[predecessor].Hostname)
+				workload = workloadMap[mixName(predecessor)]
 			}
 
 			pname := physyicalMixName{
@@ -57,18 +125,16 @@ func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypt
 				MixName:  mixName(predecessor),
 			}
 
-			m.predecessors[pname] = workloadMap[mixName(predecessor)]
+			mx.predecessors[pname] = workload
 		}
 
-		for name := range m.predecessors {
-			m.totalReceived[name] = 0
+		for name := range mx.predecessors {
+			mx.totalReceived[name] = 0
 		}
 
-		Mixes[mixName(mix.Name)] = m
-	}
+		mx.wg.Add(mx.totalWorkload)
 
-	m := &Mixers{
-		Mixes: Mixes,
+		m.states[mixName(mix.Name)] = mx
 	}
 
 	return m
@@ -85,9 +151,24 @@ type decryptionTask struct {
 	Result []Onion
 }
 
-func (m *Mixers) SetKeys(keys map[mixName]tibe.Decrypter) {
-	//TODO implement me
-	panic("implement me")
+func (m *Mixers) AddMessages(messages []*Messages) {
+	for _, message := range messages {
+		mix := m.states[mixName(message.LogicalReceiver)]
+
+		decryptionTasks := mix.createDecryptionTasks(message)
+
+		for _, task := range decryptionTasks {
+			m.tasksChan <- task
+		}
+
+		if !mix.isDone() {
+			continue
+		}
+		fmt.Println("done...")
+		// set up something to collect the results.
+
+		// todo: shuffle their work, and preare a response for anyone waiting on GetOutputs.
+	}
 }
 
 func (m *Mixers) UpdateMixes(scheme recoveryScheme) {
@@ -95,11 +176,7 @@ func (m *Mixers) UpdateMixes(scheme recoveryScheme) {
 	panic("implement me")
 }
 
-func (m *Mixers) AddMessages(messages []*Messages) {
-	//TODO implement me
-	panic("implement me")
-}
-
+// Someone must wait on this?
 func (m *Mixers) GetOutputs() []*tibe.Cipher {
 	//TODO implement me
 	panic("implement me")

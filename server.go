@@ -85,8 +85,14 @@ func (s *server) NewRound(ctx context.Context, request *NewRoundRequest) (*NewRo
 }
 
 func (s *server) EndRound(ctx context.Context, request *EndRoundRequest) (*EndRoundResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	state, ok := s.States.LoadAndDelete(Round(request.Round))
+	if !ok {
+		return nil, status.Error(codes.NotFound, "round not found")
+	}
+
+	state.Close()
+
+	return &EndRoundResponse{}, nil
 }
 
 func (s *server) AddMessages(ctx context.Context, request *AddMessagesRequest) (*AddMessagesResponse, error) {

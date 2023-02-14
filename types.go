@@ -31,6 +31,10 @@ type RoundState struct {
 	Sender
 }
 
+func (s RoundState) Close() {
+	s.MixHandler.Close()
+}
+
 type recoveryScheme struct {
 	newTopology *config.Topology
 
@@ -39,13 +43,14 @@ type recoveryScheme struct {
 }
 
 type MixHandler interface {
-	SetKeys(keys map[mixName]tibe.Decrypter)
 	// UpdateMixes states a failure and adds information regarding the new topology, keys etc.
 	UpdateMixes(recoveryScheme)
 	// AddMessages adds messages to a LogicalMix.
 	AddMessages(messages []*Messages)
 	// GetOutputs returns the result of processings of the messages.
 	GetOutputs() []*tibe.Cipher
+
+	Close()
 }
 type ResmixConfigs struct {
 	*config.ServerConfig
