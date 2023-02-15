@@ -74,7 +74,7 @@ func SingleServiceFromGRPCServiceDesc(dsc grpc.ServiceDesc, hndl interface{}) Se
 	}
 
 	return Services{
-		"SERVR": {
+		dsc.ServiceName: {
 			ServerType:        dsc.HandlerType,
 			Server:            hndl,
 			MethodDescriptors: mdscs,
