@@ -2,7 +2,10 @@ package resmix
 
 import (
 	"crypto/rand"
+	"github.com/algorand/go-deadlock"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"runtime"
 	"sync"
 
@@ -15,6 +18,8 @@ type Mixers struct {
 	tasksChan chan *decryptionTask
 	log       *logrus.Entry
 	output    chan mixoutput
+
+	mu deadlock.RWMutex
 }
 
 func (m *Mixers) Close() {
@@ -39,12 +44,16 @@ type mixState struct {
 	outputs       []Onion // should be of size totalWorkload
 
 	wg          sync.WaitGroup // used to wait for all messages to be processed by the threadpool.
+	shuffleWait sync.WaitGroup // used to wait for the shuffler to finish.
 	shuffler    *Shuffler
+
+	sync.Once
+
 	isLastLayer bool
 }
 
-// createDecryptionTasks updates state, and creates decryption tasks if the workload is complete.
-func (m *mixState) createDecryptionTasks(message *Messages) []*decryptionTask {
+// HandleNewInputs updates state, and creates decryption tasks if the workload is complete.
+func (m *mixState) HandleNewInputs(message *Messages) []*decryptionTask {
 	tsks := make([]*decryptionTask, len(message.Messages))
 
 	// todo: consider some verification on input. like - not processing the same messages twice...
@@ -79,7 +88,7 @@ func (m *mixState) isDone() bool {
 }
 
 func (m *mixState) signalDone() {
-	// TODO
+	m.shuffleWait.Done()
 }
 
 func (m *mixState) SetPredecessors(topo *config.Topology, mix *config.LogicalMix, workloadMap map[mixName]int) {
@@ -103,6 +112,14 @@ func (m *mixState) SetPredecessors(topo *config.Topology, mix *config.LogicalMix
 		m.totalReceived[name] = 0
 	}
 
+}
+
+func (m *mixState) GetOutputs() []Onion {
+	m.wg.Wait()
+
+	m.shuffleWait.Wait()
+
+	return m.outputs
 }
 
 func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) MixHandler {
@@ -138,26 +155,33 @@ func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypt
 
 func newMixState(topo *config.Topology, mix *config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) *mixState {
 	mx := &mixState{
-		name:          mix.Name,
+		name: mix.Name,
+
 		decryptionKey: decrypter,
+
 		predecessors:  make(map[physyicalMixName]int),
 		successors:    make([]mixName, len(mix.Successors)),
 		totalReceived: make(map[physyicalMixName]int),
 		totalWorkload: workloadMap[mixName(mix.Name)],
-		outputs:       make([]Onion, workloadMap[mixName(mix.Name)]),
-		wg:            sync.WaitGroup{},
-		shuffler:      NewShuffler(rand.Reader),
+
+		outputs: make([]Onion, workloadMap[mixName(mix.Name)]),
+
+		wg:          sync.WaitGroup{},
+		shuffleWait: sync.WaitGroup{},
+		shuffler:    NewShuffler(rand.Reader),
+		Once:        sync.Once{},
 
 		isLastLayer: int(mix.Layer) == len(topo.Layers)-1,
 	}
+
+	mx.shuffleWait.Add(1)       // ensuring we wait for shuffle to finish.
+	mx.wg.Add(mx.totalWorkload) // ensuring we wait for all messages to be processed.
 
 	for i, successor := range mix.Successors {
 		mx.successors[i] = mixName(successor)
 	}
 
 	mx.SetPredecessors(topo, mix, workloadMap)
-
-	mx.wg.Add(mx.totalWorkload)
 
 	return mx
 }
@@ -174,10 +198,13 @@ type decryptionTask struct {
 }
 
 func (m *Mixers) AddMessages(messages []*Messages) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for _, message := range messages {
 		mix := m.states[mixName(message.LogicalReceiver)]
 
-		decryptionTasks := mix.createDecryptionTasks(message)
+		decryptionTasks := mix.HandleNewInputs(message)
 
 		for _, task := range decryptionTasks {
 			m.tasksChan <- task
@@ -187,27 +214,49 @@ func (m *Mixers) AddMessages(messages []*Messages) {
 			continue
 		}
 
-		go func() {
-			mix.wg.Wait()
-
-			mix.shuffler.ShuffleOnions(mix.outputs)
-
-			mix.signalDone()
-
-			// do not send the output to the next layer if this is the last layer.
-			if mix.isLastLayer {
-				return
-			}
-
-			m.output <- mixoutput{
-				mix.outputs,
-				[]byte(mix.name),
-			}
-		}()
+		go m.shuffleAndSend(mix)
 	}
 }
 
+func (m *Mixers) shuffleAndSend(mix *mixState) {
+	mix.wg.Wait()
+
+	mix.Once.Do(
+		func() {
+			mix.shuffler.ShuffleOnions(mix.outputs)
+
+			mix.signalDone()
+		},
+	)
+
+	// do not send the output to the next layer if this is the last layer.
+	if mix.isLastLayer {
+		return
+	}
+
+	m.output <- mixoutput{
+		mix.GetOutputs(),
+		[]byte(mix.name),
+	}
+}
+
+func (m *Mixers) GetMixOutputs(mxName string) ([]Onion, error) {
+	m.mu.RLock()
+	mx, ok := m.states[mixName(mxName)]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, status.Error(codes.NotFound, "mix not found")
+	}
+
+	return mx.GetOutputs(), nil
+
+}
+
 func (m *Mixers) UpdateMixes(scheme recoveryScheme) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	//TODO implement me
 	panic("implement me")
 }

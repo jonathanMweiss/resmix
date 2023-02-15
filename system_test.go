@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestSystem(t *testing.T) {
@@ -41,6 +42,7 @@ func TestSystem(t *testing.T) {
 	sendStartMessage(t, mixServers, mixToOnions)
 
 	// todo: wait for messages.
+	time.Sleep(time.Second * 10)
 
 	for _, mixServer := range mixServers {
 		_, err := mixServer.EndRound(context.Background(), &EndRoundRequest{
