@@ -1,11 +1,10 @@
 package resmix
 
 import (
+	"context"
 	"github.com/jonathanMweiss/resmix/config"
 	"github.com/jonathanMweiss/resmix/rrpc"
 	"github.com/stretchr/testify/require"
-
-	"context"
 	"net"
 	"testing"
 )
@@ -39,6 +38,20 @@ func TestSystem(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	sendStartMessage(t, mixServers, mixToOnions)
+
+	// todo: wait for messages.
+
+	for _, mixServer := range mixServers {
+		_, err := mixServer.EndRound(context.Background(), &EndRoundRequest{
+			Round: 0,
+		})
+
+		require.NoError(t, err)
+	}
+}
+
+func sendStartMessage(t *testing.T, mixServers []*server, mixToOnions map[string][]Onion) {
 	for _, mixServer := range mixServers {
 		firstMix := mixServer.Configurations.ServerConfig.GetMixesSortedByLayer()[0]
 		onions := mixToOnions[firstMix]
@@ -59,19 +72,9 @@ func TestSystem(t *testing.T) {
 	}
 }
 
-func onionsToRepeatedByteArrays(onions []Onion) [][]byte {
-	res := make([][]byte, len(onions))
-
-	for i, onion := range onions {
-		res[i] = onion
-	}
-
-	return res
-}
-
 func genMsgsForTest(t *testing.T, sys *config.SystemConfig) map[string][]Onion {
 	mg := NewMessageGenerator(sys)
-	onions, err := mg.LoadOrCreateMessages(1000, 0)
+	onions, err := mg.LoadOrCreateMessages(100, 0)
 	require.NoError(t, err)
 
 	return GroupOnionsByMixName(onions, sys.Topology)

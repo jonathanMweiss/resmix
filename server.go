@@ -75,8 +75,18 @@ func (s *server) NewRound(ctx context.Context, request *NewRoundRequest) (*NewRo
 	roundID := computeId(s.Configurations.Hostname, int(request.Round))
 	decrypter := s.DecryptionNode.Decrypter(roundID[:])
 
+	mixers := NewMixers(s.Configurations.Topology, mixes, decrypter, workloadPerMix)
+	sender := NewSender(
+		int(request.Round),
+		s.Configurations.ServerConfig.Hostname,
+		s.Configurations.Topology,
+		s.Connections,
+		mixers.GetOutputsChan(),
+	)
+
 	info := RoundState{
-		MixHandler: NewMixers(s.Configurations.Topology, mixes, decrypter, workloadPerMix),
+		MixHandler: mixers,
+		Sender:     sender,
 	}
 
 	s.States.Store(Round(request.Round), info)

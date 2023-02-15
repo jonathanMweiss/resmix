@@ -14,7 +14,7 @@ type Mixers struct {
 	states    map[mixName]*mixState
 	tasksChan chan *decryptionTask
 	log       *logrus.Entry
-	output    chan []Onion
+	output    chan mixoutput
 }
 
 func (m *Mixers) Close() {
@@ -27,6 +27,8 @@ type physyicalMixName struct {
 }
 
 type mixState struct {
+	name string
+
 	decryptionKey tibe.Decrypter
 
 	predecessors  map[physyicalMixName]int // usually one, unless the host of that mix failed.
@@ -36,8 +38,9 @@ type mixState struct {
 	totalWorkload int
 	outputs       []Onion // should be of size totalWorkload
 
-	wg       sync.WaitGroup // used to wait for all messages to be processed by the threadpool.
-	shuffler *Shuffler
+	wg          sync.WaitGroup // used to wait for all messages to be processed by the threadpool.
+	shuffler    *Shuffler
+	isLastLayer bool
 }
 
 // createDecryptionTasks updates state, and creates decryption tasks if the workload is complete.
@@ -75,12 +78,39 @@ func (m *mixState) isDone() bool {
 	return true
 }
 
+func (m *mixState) signalDone() {
+	// TODO
+}
+
+func (m *mixState) SetPredecessors(topo *config.Topology, mix *config.LogicalMix, workloadMap map[mixName]int) {
+	for _, predecessor := range mix.Predecessors {
+		host := hostname(config.GenesisName)
+		workload := m.totalWorkload
+		if predecessor != config.GenesisName {
+			host = hostname(topo.Mixes[predecessor].Hostname)
+			workload = workloadMap[mixName(predecessor)]
+		}
+
+		pname := physyicalMixName{
+			Hostname: host,
+			MixName:  mixName(predecessor),
+		}
+
+		m.predecessors[pname] = workload
+	}
+
+	for name := range m.predecessors {
+		m.totalReceived[name] = 0
+	}
+
+}
+
 func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) MixHandler {
 	m := &Mixers{
 		log:       logrus.WithField("component", "mixer"),
 		states:    make(map[mixName]*mixState),
 		tasksChan: make(chan *decryptionTask, 1000),
-		output:    make(chan []Onion, len(mixesConfigs)*2),
+		output:    make(chan mixoutput, len(mixesConfigs)*2),
 	}
 
 	for i := 0; i < runtime.NumCPU(); i++ {
@@ -99,54 +129,37 @@ func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypt
 		}()
 	}
 
-	// todo: consider more threads for different operations.
-
 	for _, mix := range mixesConfigs {
-		mx := &mixState{
-			decryptionKey: decrypter,
-
-			predecessors:  make(map[physyicalMixName]int),
-			successors:    make([]mixName, len(mix.Successors)),
-			totalReceived: make(map[physyicalMixName]int),
-
-			totalWorkload: workloadMap[mixName(mix.Name)],
-
-			outputs: make([]Onion, workloadMap[mixName(mix.Name)]),
-			wg:      sync.WaitGroup{},
-
-			shuffler: NewShuffler(rand.Reader),
-		}
-
-		for i, successor := range mix.Successors {
-			mx.successors[i] = mixName(successor)
-		}
-
-		for _, predecessor := range mix.Predecessors {
-			host := hostname(config.GenesisName)
-			workload := mx.totalWorkload
-			if predecessor != config.GenesisName {
-				host = hostname(topo.Mixes[predecessor].Hostname)
-				workload = workloadMap[mixName(predecessor)]
-			}
-
-			pname := physyicalMixName{
-				Hostname: host,
-				MixName:  mixName(predecessor),
-			}
-
-			mx.predecessors[pname] = workload
-		}
-
-		for name := range mx.predecessors {
-			mx.totalReceived[name] = 0
-		}
-
-		mx.wg.Add(mx.totalWorkload)
-
-		m.states[mixName(mix.Name)] = mx
+		m.states[mixName(mix.Name)] = newMixState(topo, mix, decrypter, workloadMap)
 	}
 
 	return m
+}
+
+func newMixState(topo *config.Topology, mix *config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) *mixState {
+	mx := &mixState{
+		name:          mix.Name,
+		decryptionKey: decrypter,
+		predecessors:  make(map[physyicalMixName]int),
+		successors:    make([]mixName, len(mix.Successors)),
+		totalReceived: make(map[physyicalMixName]int),
+		totalWorkload: workloadMap[mixName(mix.Name)],
+		outputs:       make([]Onion, workloadMap[mixName(mix.Name)]),
+		wg:            sync.WaitGroup{},
+		shuffler:      NewShuffler(rand.Reader),
+
+		isLastLayer: int(mix.Layer) == len(topo.Layers)-1,
+	}
+
+	for i, successor := range mix.Successors {
+		mx.successors[i] = mixName(successor)
+	}
+
+	mx.SetPredecessors(topo, mix, workloadMap)
+
+	mx.wg.Add(mx.totalWorkload)
+
+	return mx
 }
 
 type decryptionTask struct {
@@ -178,7 +191,18 @@ func (m *Mixers) AddMessages(messages []*Messages) {
 			mix.wg.Wait()
 
 			mix.shuffler.ShuffleOnions(mix.outputs)
-			m.output <- mix.outputs
+
+			mix.signalDone()
+
+			// do not send the output to the next layer if this is the last layer.
+			if mix.isLastLayer {
+				return
+			}
+
+			m.output <- mixoutput{
+				mix.outputs,
+				[]byte(mix.name),
+			}
 		}()
 	}
 }
@@ -189,6 +213,6 @@ func (m *Mixers) UpdateMixes(scheme recoveryScheme) {
 }
 
 // Someone must wait on this?
-func (m *Mixers) GetOutputs() []Onion {
-	return <-m.output
+func (m *Mixers) GetOutputsChan() <-chan mixoutput {
+	return m.output
 }

@@ -23,6 +23,7 @@ type (
 )
 
 type Sender interface {
+	Close()
 	// TODO. decide how to send messages to other mixes.
 }
 
@@ -42,13 +43,18 @@ type recoveryScheme struct {
 	keys              map[mixName]tibe.Decrypter
 }
 
+type mixoutput struct {
+	onions        []Onion
+	logicalSender []byte
+}
+
 type MixHandler interface {
 	// UpdateMixes states a failure and adds information regarding the new topology, keys etc.
 	UpdateMixes(recoveryScheme)
 	// AddMessages adds messages to a LogicalMix.
 	AddMessages(messages []*Messages)
 	// GetOutputs returns the result of processings of the messages.
-	GetOutputs() []Onion
+	GetOutputsChan() <-chan mixoutput
 
 	Close()
 }

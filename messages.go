@@ -60,6 +60,25 @@ func GroupOnionsByMixName(onions []Onion, topology *config.Topology) map[string]
 	return m
 }
 
+func GroupOnionsByHostname(onions []Onion, topology *config.Topology) map[string][]Onion {
+	numServers := len(topology.Layers[0].LogicalMixes)
+
+	m := map[string][]Onion{}
+
+	for _, o := range onions {
+		mix := o.ExtractMixConfig(topology)
+		address := mix.Hostname
+
+		if _, ok := m[address]; !ok {
+			m[address] = make([]Onion, 0, len(onions)/numServers)
+		}
+
+		m[address] = append(m[address], o)
+	}
+
+	return m
+}
+
 func (m MessageGenerator) onionWrap(
 	round int, layer, posInLayer uint32, msg []byte, serverMasterPublicKey *tibe.MasterPublicKey) (Onion, error) {
 	sname := m.SystemConfig.Topology.Layers[layer].LogicalMixes[posInLayer].Hostname
