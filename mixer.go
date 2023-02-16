@@ -13,6 +13,33 @@ import (
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 )
 
+// MixHandler ensures sequencial access. Any method called will block until the previous method has finished.
+type MixHandler interface {
+	// UpdateMixes states a failure and adds information regarding the new topology, keys etc.
+	UpdateMixes(recoveryScheme)
+
+	// AddMessages adds messages to a LogicalMix.
+	AddMessages(messages []*Messages)
+
+	// GetOutputsChan returns processed messages.
+	GetOutputsChan() <-chan mixoutput
+
+	Close()
+}
+
+type recoveryScheme struct {
+	newTopology *config.Topology
+
+	newResponsibility map[mixName]hostname
+	keys              map[mixName]tibe.Decrypter
+}
+
+type mixoutput struct {
+	onions        []Onion
+	logicalSender []byte
+}
+
+// Mixers implements MixHandler
 type Mixers struct {
 	states    map[mixName]*mixState
 	tasksChan chan *decryptionTask
@@ -22,8 +49,15 @@ type Mixers struct {
 	mu deadlock.RWMutex
 }
 
-func (m *Mixers) Close() {
-	close(m.tasksChan)
+type decryptionTask struct {
+	wg *sync.WaitGroup
+
+	tibe.Decrypter
+	input Onion
+
+	// output onion on the
+	Idx    int
+	Result []Onion
 }
 
 type physyicalMixName struct {
@@ -50,6 +84,127 @@ type mixState struct {
 	sync.Once
 
 	isLastLayer bool
+}
+
+func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) MixHandler {
+	m := &Mixers{
+		log:       logrus.WithField("component", "mixer"),
+		states:    make(map[mixName]*mixState),
+		tasksChan: make(chan *decryptionTask, 1000), // TODO: discuss size with Yossi. i assume we'll want the buffer to fit the max workload of a single mix.
+		output:    make(chan mixoutput, len(mixesConfigs)*2),
+	}
+
+	for i := 0; i < runtime.NumCPU(); i++ {
+		// Decryption workers
+		go func() {
+			for task := range m.tasksChan {
+				cipher := task.input.ExtractCipher()
+				outOnion, err := task.Decrypter.Decrypt(*cipher)
+				if err != nil {
+					m.log.Errorln("failed to decrypt message", err)
+				}
+
+				// either nil/ or the decrypted message.
+				task.Result[task.Idx] = outOnion
+				task.wg.Done()
+			}
+		}()
+	}
+
+	for _, mix := range mixesConfigs {
+		m.states[mixName(mix.Name)] = newMixState(topo, mix, decrypter, workloadMap)
+	}
+
+	return m
+}
+
+func (m *Mixers) Close() {
+	close(m.tasksChan)
+}
+
+func newMixState(topo *config.Topology, mix *config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) *mixState {
+	mx := &mixState{
+		name: mix.Name,
+
+		decryptionKey: decrypter,
+
+		predecessors:  make(map[physyicalMixName]int),
+		successors:    make([]mixName, len(mix.Successors)),
+		totalReceived: make(map[physyicalMixName]int),
+		totalWorkload: workloadMap[mixName(mix.Name)],
+
+		outputs: make([]Onion, workloadMap[mixName(mix.Name)]),
+
+		wg:          sync.WaitGroup{},
+		shuffleWait: sync.WaitGroup{},
+		shuffler:    NewShuffler(rand.Reader),
+		Once:        sync.Once{},
+
+		isLastLayer: int(mix.Layer) == len(topo.Layers)-1,
+	}
+
+	mx.shuffleWait.Add(1)       // ensuring we wait for shuffle to finish.
+	mx.wg.Add(mx.totalWorkload) // ensuring we wait for all messages to be processed.
+
+	for i, successor := range mix.Successors {
+		mx.successors[i] = mixName(successor)
+	}
+
+	mx.SetPredecessors(topo, mix, workloadMap)
+
+	return mx
+}
+
+func (m *mixState) SetPredecessors(topo *config.Topology, mix *config.LogicalMix, workloadMap map[mixName]int) {
+	for _, predecessor := range mix.Predecessors {
+		host := hostname(config.GenesisName)
+		workload := m.totalWorkload
+		if predecessor != config.GenesisName {
+			host = hostname(topo.Mixes[predecessor].Hostname)
+			workload = workloadMap[mixName(predecessor)]
+		}
+
+		pname := physyicalMixName{
+			Hostname: host,
+			MixName:  mixName(predecessor),
+		}
+
+		m.predecessors[pname] = workload
+	}
+
+	for name := range m.predecessors {
+		m.totalReceived[name] = 0
+	}
+
+}
+
+func (m *mixState) GetOutputs() []Onion {
+	m.wg.Wait()
+
+	m.shuffleWait.Wait()
+
+	return m.outputs
+}
+
+func (m *Mixers) AddMessages(messages []*Messages) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, message := range messages {
+		mix := m.states[mixName(message.LogicalReceiver)]
+
+		decryptionTasks := mix.HandleNewInputs(message)
+
+		for _, task := range decryptionTasks {
+			m.tasksChan <- task
+		}
+
+		if !mix.isDone() {
+			continue
+		}
+
+		go m.shuffleAndSend(mix)
+	}
 }
 
 // HandleNewInputs updates state, and creates decryption tasks if the workload is complete.
@@ -91,133 +246,6 @@ func (m *mixState) signalDone() {
 	m.shuffleWait.Done()
 }
 
-func (m *mixState) SetPredecessors(topo *config.Topology, mix *config.LogicalMix, workloadMap map[mixName]int) {
-	for _, predecessor := range mix.Predecessors {
-		host := hostname(config.GenesisName)
-		workload := m.totalWorkload
-		if predecessor != config.GenesisName {
-			host = hostname(topo.Mixes[predecessor].Hostname)
-			workload = workloadMap[mixName(predecessor)]
-		}
-
-		pname := physyicalMixName{
-			Hostname: host,
-			MixName:  mixName(predecessor),
-		}
-
-		m.predecessors[pname] = workload
-	}
-
-	for name := range m.predecessors {
-		m.totalReceived[name] = 0
-	}
-
-}
-
-func (m *mixState) GetOutputs() []Onion {
-	m.wg.Wait()
-
-	m.shuffleWait.Wait()
-
-	return m.outputs
-}
-
-func NewMixers(topo *config.Topology, mixesConfigs []*config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) MixHandler {
-	m := &Mixers{
-		log:       logrus.WithField("component", "mixer"),
-		states:    make(map[mixName]*mixState),
-		tasksChan: make(chan *decryptionTask, 1000),
-		output:    make(chan mixoutput, len(mixesConfigs)*2),
-	}
-
-	for i := 0; i < runtime.NumCPU(); i++ {
-		go func() {
-			for task := range m.tasksChan {
-				cipher := task.input.ExtractCipher()
-				outOnion, err := task.Decrypter.Decrypt(*cipher)
-				if err != nil {
-					m.log.Errorln("failed to decrypt message", err)
-				}
-
-				// either nil/ or the decrypted message.
-				task.Result[task.Idx] = outOnion
-				task.wg.Done()
-			}
-		}()
-	}
-
-	for _, mix := range mixesConfigs {
-		m.states[mixName(mix.Name)] = newMixState(topo, mix, decrypter, workloadMap)
-	}
-
-	return m
-}
-
-func newMixState(topo *config.Topology, mix *config.LogicalMix, decrypter tibe.Decrypter, workloadMap map[mixName]int) *mixState {
-	mx := &mixState{
-		name: mix.Name,
-
-		decryptionKey: decrypter,
-
-		predecessors:  make(map[physyicalMixName]int),
-		successors:    make([]mixName, len(mix.Successors)),
-		totalReceived: make(map[physyicalMixName]int),
-		totalWorkload: workloadMap[mixName(mix.Name)],
-
-		outputs: make([]Onion, workloadMap[mixName(mix.Name)]),
-
-		wg:          sync.WaitGroup{},
-		shuffleWait: sync.WaitGroup{},
-		shuffler:    NewShuffler(rand.Reader),
-		Once:        sync.Once{},
-
-		isLastLayer: int(mix.Layer) == len(topo.Layers)-1,
-	}
-
-	mx.shuffleWait.Add(1)       // ensuring we wait for shuffle to finish.
-	mx.wg.Add(mx.totalWorkload) // ensuring we wait for all messages to be processed.
-
-	for i, successor := range mix.Successors {
-		mx.successors[i] = mixName(successor)
-	}
-
-	mx.SetPredecessors(topo, mix, workloadMap)
-
-	return mx
-}
-
-type decryptionTask struct {
-	wg *sync.WaitGroup
-
-	tibe.Decrypter
-	input Onion
-
-	// output onion on the
-	Idx    int
-	Result []Onion
-}
-
-func (m *Mixers) AddMessages(messages []*Messages) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for _, message := range messages {
-		mix := m.states[mixName(message.LogicalReceiver)]
-
-		decryptionTasks := mix.HandleNewInputs(message)
-
-		for _, task := range decryptionTasks {
-			m.tasksChan <- task
-		}
-
-		if !mix.isDone() {
-			continue
-		}
-
-		go m.shuffleAndSend(mix)
-	}
-}
-
 func (m *Mixers) shuffleAndSend(mix *mixState) {
 	mix.wg.Wait()
 
@@ -250,7 +278,6 @@ func (m *Mixers) GetMixOutputs(mxName string) ([]Onion, error) {
 	}
 
 	return mx.GetOutputs(), nil
-
 }
 
 func (m *Mixers) UpdateMixes(scheme recoveryScheme) {
@@ -261,7 +288,6 @@ func (m *Mixers) UpdateMixes(scheme recoveryScheme) {
 	panic("implement me")
 }
 
-// Someone must wait on this?
 func (m *Mixers) GetOutputsChan() <-chan mixoutput {
 	return m.output
 }

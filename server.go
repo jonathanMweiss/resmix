@@ -3,6 +3,7 @@ package resmix
 import (
 	"context"
 	"fmt"
+	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
 	"strconv"
 
 	"github.com/golang/protobuf/proto"
@@ -12,6 +13,50 @@ import (
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+type ResMixServer interface {
+	MixServer
+	// TODO: ResMixServer should support Relay required methods for attestations.
+
+	// Dial is used to connect to other mixes.
+	Dial() error
+	Close() error
+}
+
+type ResmixConfigs struct {
+	*config.ServerConfig
+	*config.Topology
+	RrpcConfigs rrpc.Configs
+}
+
+type RoundState struct {
+	MixHandler MixHandler
+	Sender     interface{}
+}
+
+func (s *RoundState) Close() {
+	s.MixHandler.Close()
+}
+
+type server struct {
+	Publisher      tibe.Publisher
+	DecryptionNode tibe.VssIbeNode // responsible for reconstructing decryption keys, generating keys for the current round.
+
+	Configurations *ResmixConfigs
+
+	States msync.Map[Round, RoundState]
+
+	Connections map[hostname]rrpc.ClientConn
+
+	rrpc.ServerCoordinator
+}
+
+type (
+	hostname string
+	mixName  string
+
+	Round int
 )
 
 func NewMixServer(cnfgs *ResmixConfigs) (MixServer, error) {
