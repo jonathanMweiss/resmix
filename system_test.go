@@ -6,11 +6,12 @@ import (
 	"github.com/jonathanMweiss/resmix/rrpc"
 	"github.com/stretchr/testify/require"
 	"net"
+	"strconv"
 	"testing"
 )
 
 type T struct {
-	*testing.T
+	require.TestingT
 	sys           *config.SystemConfig
 	mixServers    []*server
 	rrpcServers   []rrpc.Server
@@ -23,33 +24,10 @@ type T struct {
 type TestMessages struct {
 	mg *MessageGenerator
 
-	Onions   []Onion
-	Messages [][]byte
+	Onions     []Onion
+	MessageSet map[string]struct{}
 
 	mixToOnions map[string][]Onion
-}
-
-func (i *T) Close() {
-	closeMixServers(i.mixServers)
-	closeServers(i.rrpcServers)
-}
-
-func (i *T) setRound(rnd int) {
-	i.round = rnd
-}
-
-func (i *T) GenerateMessages(n int) {
-	if i.testMsgs.mg == nil {
-		i.testMsgs.mg = NewMessageGenerator(i.sys)
-	}
-
-	pairs, err := i.testMsgs.mg.LoadOrCreateMessages(n, i.round)
-	require.NoError(i, err)
-
-	i.testMsgs.Onions = pairs.AllOnions()
-	i.testMsgs.Messages = pairs.AllMessages()
-
-	i.testMsgs.mixToOnions = GroupOnionsByMixName(i.testMsgs.Onions, i.sys.Topology)
 }
 
 func TestSystem(tmp *testing.T) {
@@ -60,27 +38,58 @@ func TestSystem(tmp *testing.T) {
 	t := newTester(tmp, numServers, polyDegree, numLayers)
 	defer t.Close()
 
-	t.setRound(0)
+	for i := 0; i < 5; i++ {
+		tmp.Run("round "+strconv.Itoa(i), func(tt *testing.T) {
+			t.setRound(i)
 
-	t.GenerateMessages(100)
-	mixToOnions := t.testMsgs.mixToOnions
-	msgs := t.testMsgs.Messages
+			t.GenerateMessages(100)
 
-	t.startRound()
+			t.startRound()
 
-	sendStartMessage(t.T, t.mixServers, mixToOnions)
+			t.sendStartMessage()
 
-	msgSet := makeSet(msgs)
-	require.Equal(t.T, len(msgSet), len(msgs), "duplicates in message set")
+			response := t.collectMessages()
+			verifyResults(t, t.testMsgs.MessageSet, makeSet(response))
 
-	response := collectMessages(t.T, t.sys, t.mixServersMap)
+			t.endRound()
 
-	verifyResults(t.T, msgSet, makeSet(response))
+		})
 
-	endRound(t.T, t.mixServers)
+	}
+
 }
 
-func newTester(t *testing.T, numServers int, polyDegree int, numLayers int) *T {
+func (t *T) Close() {
+	for _, s := range t.mixServers {
+		require.NoError(t, s.Close())
+	}
+
+	closeServers(t.rrpcServers)
+}
+
+func (t *T) setRound(rnd int) {
+	t.round = rnd
+}
+
+func (t *T) GenerateMessages(n int) {
+	if t.testMsgs.mg == nil {
+		t.testMsgs.mg = NewMessageGenerator(t.sys)
+	}
+
+	pairs, err := t.testMsgs.mg.LoadOrCreateMessages(n, t.round)
+	require.NoError(t, err)
+
+	t.testMsgs.Onions = pairs.AllOnions()
+
+	msgs := pairs.AllMessages()
+	msgSet := makeSet(msgs)
+	require.Equal(t, len(msgSet), len(msgs), "duplicates in message set")
+
+	t.testMsgs.MessageSet = msgSet
+	t.testMsgs.mixToOnions = GroupOnionsByMixName(t.testMsgs.Onions, t.sys.Topology)
+}
+
+func newTester(t require.TestingT, numServers int, polyDegree int, numLayers int) *T {
 	sys := config.CreateLocalSystemConfigs(numServers, polyDegree, numLayers)
 
 	mixServers := createServers(t, sys)
@@ -89,7 +98,7 @@ func newTester(t *testing.T, numServers int, polyDegree int, numLayers int) *T {
 
 	mixServersMap := mixServerArrayToMap(mixServers)
 	return &T{
-		T:             t,
+		TestingT:      t,
 		sys:           sys,
 		mixServers:    mixServers,
 		rrpcServers:   rrpcServers,
@@ -97,7 +106,7 @@ func newTester(t *testing.T, numServers int, polyDegree int, numLayers int) *T {
 	}
 }
 
-func verifyResults(t *testing.T, msgSet map[string]struct{}, responseSet map[string]struct{}) {
+func verifyResults(t *T, msgSet map[string]struct{}, responseSet map[string]struct{}) {
 	require.Equal(t, len(msgSet), len(responseSet))
 	for msg := range msgSet {
 		_, ok := responseSet[msg]
@@ -113,12 +122,12 @@ func makeSet(msgs [][]byte) map[string]struct{} {
 	return msgMap
 }
 
-func collectMessages(t *testing.T, sys *config.SystemConfig, mixServersMap map[string]*server) [][]byte {
-	lastLayer := sys.Topology.Layers[len(sys.Topology.Layers)-1]
-	out := make([][]byte, 0, 1000)
+func (t *T) collectMessages() [][]byte {
+	lastLayer := t.sys.Topology.Layers[len(t.sys.Topology.Layers)-1]
+	out := make([][]byte, 0, len(t.testMsgs.MessageSet))
 	for _, mix := range lastLayer.LogicalMixes {
-		resp, err := mixServersMap[mix.Hostname].GetMessages(context.Background(), &GetMessagesRequest{
-			Round:        0,
+		resp, err := t.mixServersMap[mix.Hostname].GetMessages(context.Background(), &GetMessagesRequest{
+			Round:        uint32(t.round),
 			LogicalMixer: []byte(mix.Name),
 		})
 
@@ -130,28 +139,28 @@ func collectMessages(t *testing.T, sys *config.SystemConfig, mixServersMap map[s
 	return out
 }
 
-func (i *T) startRound() {
+func (t *T) startRound() {
 	mixToWorkload := make(map[string]uint64)
-	for s, onions := range i.testMsgs.mixToOnions {
+	for s, onions := range t.testMsgs.mixToOnions {
 		mixToWorkload[s] = uint64(len(onions))
 	}
 
-	for _, mixServer := range i.mixServers {
-		require.NoError(i, mixServer.Dial())
+	for _, mixServer := range t.mixServers {
+		require.NoError(t, mixServer.Dial())
 
 		_, err := mixServer.NewRound(context.Background(), &NewRoundRequest{
-			Round:                    0,
+			Round:                    uint32(t.round),
 			MixIdsToExpectedWorkload: mixToWorkload,
 		})
 
-		require.NoError(i, err)
+		require.NoError(t, err)
 	}
 }
 
-func endRound(t *testing.T, mixServers []*server) {
-	for _, mixServer := range mixServers {
+func (t *T) endRound() {
+	for _, mixServer := range t.mixServers {
 		_, err := mixServer.EndRound(context.Background(), &EndRoundRequest{
-			Round: 0,
+			Round: uint32(t.round),
 		})
 
 		require.NoError(t, err)
@@ -167,13 +176,13 @@ func mixServerArrayToMap(servers []*server) map[string]*server {
 	return mp
 }
 
-func sendStartMessage(t *testing.T, mixServers []*server, mixToOnions map[string][]Onion) {
-	for _, mixServer := range mixServers {
+func (t *T) sendStartMessage() {
+	for _, mixServer := range t.mixServers {
 		firstMix := mixServer.Configurations.ServerConfig.GetMixesSortedByLayer()[0]
-		onions := mixToOnions[firstMix]
+		onions := t.testMsgs.mixToOnions[firstMix]
 
 		_, err := mixServer.AddMessages(context.Background(), &AddMessagesRequest{
-			Round: 0,
+			Round: uint32(t.round),
 			Messages: []*Messages{
 				{
 					Messages:        onionsToRepeatedByteArrays(onions),
@@ -188,17 +197,13 @@ func sendStartMessage(t *testing.T, mixServers []*server, mixToOnions map[string
 	}
 }
 
-func closeMixServers(servers []*server) {
-	// todo
-}
-
 func closeServers(servers []rrpc.Server) {
 	for _, server := range servers {
 		server.Stop()
 	}
 }
 
-func createServers(t *testing.T, sys *config.SystemConfig) []*server {
+func createServers(t require.TestingT, sys *config.SystemConfig) []*server {
 	mixServers := make([]*server, len(sys.ServerConfigs))
 
 	for i, serverConfig := range sys.ServerConfigs {
@@ -218,7 +223,7 @@ func createServers(t *testing.T, sys *config.SystemConfig) []*server {
 	return mixServers
 }
 
-func launchServers(t *testing.T, mixServers []*server) []rrpc.Server {
+func launchServers(t require.TestingT, mixServers []*server) []rrpc.Server {
 	rrpcSrvrs := make([]rrpc.Server, len(mixServers))
 
 	for i, mixServer := range mixServers {

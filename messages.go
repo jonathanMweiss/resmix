@@ -150,7 +150,7 @@ func (m MessageOnionsPairArray) AllMessages() [][]byte {
 
 // LoadOrCreateMessages returns numclients * sqrt(2*numChains) onions
 func (m *MessageGenerator) LoadOrCreateMessages(numClients, round int) (MessageOnionsPairArray, error) {
-	fname := fmt.Sprintf("%v.%v", numClients, m.messageStoreageLocation)
+	fname := fmt.Sprintf("%v.round.%v.%v", round, numClients, m.messageStoreageLocation)
 	_, err := os.Stat(fname)
 	if err == nil {
 		return m.loadMessages(fname)
