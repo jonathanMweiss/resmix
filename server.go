@@ -52,6 +52,27 @@ type server struct {
 	rrpc.ServerCoordinator
 }
 
+func (s *server) GetMessages(ctx context.Context, request *GetMessagesRequest) (*GetMessagesResponse, error) {
+	state, ok := s.States.Load(Round(request.Round))
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "no round state")
+	}
+
+	onions, err := state.MixHandler.GetMixOutputs(mixName(request.LogicalMixer))
+	if err != nil {
+		return nil, err
+	}
+
+	msgs := make([][]byte, len(onions))
+	for i, onion := range onions {
+		msgs[i] = onion
+	}
+
+	return &GetMessagesResponse{
+		Messages: msgs,
+	}, nil
+}
+
 type (
 	hostname string
 	mixName  string

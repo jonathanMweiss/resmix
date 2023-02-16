@@ -24,6 +24,8 @@ type MixHandler interface {
 	// GetOutputsChan returns processed messages.
 	GetOutputsChan() <-chan mixoutput
 
+	GetMixOutputs(mxName mixName) ([]Onion, error)
+
 	Close()
 }
 
@@ -268,7 +270,7 @@ func (m *Mixers) shuffleAndSend(mix *mixState) {
 	}
 }
 
-func (m *Mixers) GetMixOutputs(mxName string) ([]Onion, error) {
+func (m *Mixers) GetMixOutputs(mxName mixName) ([]Onion, error) {
 	m.mu.RLock()
 	mx, ok := m.states[mixName(mxName)]
 	m.mu.RUnlock()

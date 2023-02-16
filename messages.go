@@ -123,8 +123,33 @@ func NewMessageGenerator(sysConfigs *config.SystemConfig) *MessageGenerator {
 	return m
 }
 
+type MessageOnionsPair struct {
+	Message []byte
+	Onions  []Onion
+}
+
+type MessageOnionsPairArray []MessageOnionsPair
+
+func (m MessageOnionsPairArray) AllOnions() []Onion {
+	onions := make([]Onion, 0, len(m)*len(m[0].Onions))
+	for _, pair := range m {
+		onions = append(onions, pair.Onions...)
+	}
+
+	return onions
+}
+
+func (m MessageOnionsPairArray) AllMessages() [][]byte {
+	msgs := make([][]byte, 0, len(m))
+	for _, pair := range m {
+		msgs = append(msgs, pair.Message)
+	}
+
+	return msgs
+}
+
 // LoadOrCreateMessages returns numclients * sqrt(2*numChains) onions
-func (m *MessageGenerator) LoadOrCreateMessages(numClients, round int) ([]Onion, error) {
+func (m *MessageGenerator) LoadOrCreateMessages(numClients, round int) (MessageOnionsPairArray, error) {
 	fname := fmt.Sprintf("%v.%v", numClients, m.messageStoreageLocation)
 	_, err := os.Stat(fname)
 	if err == nil {
@@ -145,13 +170,13 @@ func (m *MessageGenerator) LoadOrCreateMessages(numClients, round int) ([]Onion,
 	return onions, nil
 }
 
-func (m *MessageGenerator) loadMessages(fname string) ([]Onion, error) {
+func (m *MessageGenerator) loadMessages(fname string) ([]MessageOnionsPair, error) {
 	content, err := os.ReadFile(fname)
 	if err != nil {
 		return nil, err
 	}
 
-	onions := make([]Onion, 0)
+	onions := make([]MessageOnionsPair, 0)
 	if err := json.Unmarshal(content, &onions); err != nil {
 		return nil, err
 	}
@@ -159,11 +184,11 @@ func (m *MessageGenerator) loadMessages(fname string) ([]Onion, error) {
 	return onions, nil
 }
 
-func (m *MessageGenerator) generateOnions(numClients int, round int) []Onion {
-	onions := make([]Onion, 0, numClients*int(math.Pow(float64(len(m.SystemConfig.Topology.Layers)), 2)))
+func (m *MessageGenerator) generateOnions(numClients int, round int) []MessageOnionsPair {
+	out := make([]MessageOnionsPair, 0, numClients)
 
 	N := runtime.NumCPU()
-	results := make(chan []Onion, 2*N)
+	results := make(chan MessageOnionsPair, 2*N)
 
 	partitionSize := numClients / N
 
@@ -184,17 +209,20 @@ func (m *MessageGenerator) generateOnions(numClients int, round int) []Onion {
 				randomMsg := make([]byte, messageSize)
 				_, _ = rand.Read(randomMsg)
 
-				results <- m.generateOnion(randomMsg, round)
+				results <- MessageOnionsPair{
+					Message: randomMsg,
+					Onions:  m.generateOnion(randomMsg, round),
+				}
 			}
 		}()
 
 	}
 
 	for i := 0; i < numClients; i++ {
-		onions = append(onions, <-results...)
+		out = append(out, <-results)
 	}
 
-	return onions
+	return out
 }
 
 func (m *MessageGenerator) generateOnion(msg []byte, round int) []Onion {

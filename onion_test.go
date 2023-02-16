@@ -41,10 +41,10 @@ func TestWriteOnionDistribution(t *testing.T) {
 	gen := NewMessageGenerator(sys)
 
 	round := 0
-	onions, err := gen.LoadOrCreateMessages(100, round)
+	msgs, err := gen.LoadOrCreateMessages(100, round)
 	require.NoError(t, err)
 
-	grps := GroupOnionsByMixName(onions, sys.Topology)
+	grps := GroupOnionsByMixName(msgs.AllOnions(), sys.Topology)
 
 	for host, split := range grps {
 		t.Logf("%s: %d", host, len(split))
