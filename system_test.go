@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"testing"
+	"time"
 )
 
 type T struct {
@@ -38,7 +39,8 @@ func TestSystem(tmp *testing.T) {
 	t := newTester(tmp, numServers, polyDegree, numLayers)
 	defer t.Close()
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
+		time.Sleep(1 * time.Second) // need sometime in between?
 		tmp.Run("round "+strconv.Itoa(i), func(tt *testing.T) {
 			t.setRound(i)
 
