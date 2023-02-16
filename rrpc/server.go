@@ -2,7 +2,7 @@ package rrpc
 
 import (
 	"bytes"
-	"fmt"
+	"github.com/sirupsen/logrus"
 	"net"
 	"sync"
 
@@ -23,6 +23,7 @@ type RrpcServer interface {
 }
 
 type server struct {
+	log *logrus.Entry
 	Services
 	ServerCoordinator
 
@@ -53,15 +54,21 @@ func (s *server) Serve(lis net.Listener) error {
 	return s.gsrvr.Serve(lis)
 }
 
-func newServerService(skey crypto.PrivateKey, s Services, network ServerCoordinator, options ...grpc.ServerOption) (RrpcServer, error) {
+func newServerService(s Services, network ServerCoordinator, options ...grpc.ServerOption) (RrpcServer, error) {
 	cntx, cancelf := context.WithCancel(context.Background())
 	gsrvr := grpc.NewServer(options...)
 
 	srvr := &server{
+		log: logrus.WithFields(
+			logrus.Fields{
+				"component": "rrpc.server",
+				"address":   network.GetHostname(network.GetSecretKey().Public()),
+			},
+		),
 		Services:          s,
 		ServerCoordinator: network,
 
-		skey: skey,
+		skey: network.GetSecretKey(),
 
 		WaitGroup:  &sync.WaitGroup{},
 		CancelFunc: cancelf,
@@ -131,7 +138,8 @@ func (s *server) DirectCall(server Server_DirectCallServer) error {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 
-		serviceOut, serviceError := methodDesc.Handler(svc.Server, server.Context(), createDecodeFunc(request.Payload))
+		ctx := insertUuidToContext(s.Context, request.Note.Calluuid)
+		serviceOut, serviceError := methodDesc.Handler(svc.Server, ctx, createDecodeFunc(request.Payload))
 
 		result, err := intoDirectCallResponse(serviceError, serviceOut)
 		if err != nil {
@@ -139,7 +147,8 @@ func (s *server) DirectCall(server Server_DirectCallServer) error {
 		}
 
 		if err := merkleSign([]MerkleCertifiable{(*receiverNote)(request.Note)}, s.skey); err != nil {
-			fmt.Println("couldn't sign the note. exiting stream:", err.Error())
+			s.log.Errorln("couldn't sign note. existing direct call stream: ", err.Error())
+
 			return status.Error(codes.Internal, err.Error())
 		}
 
@@ -150,7 +159,8 @@ func (s *server) DirectCall(server Server_DirectCallServer) error {
 
 		err = server.Send(&response)
 		if err != nil {
-			fmt.Println("server faced an error while sending a response: ", err.Error())
+			s.log.Errorln("faced an error while sending a response: ", err.Error())
+
 			return status.Error(codes.Internal, err.Error())
 		}
 	}

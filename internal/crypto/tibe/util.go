@@ -1,10 +1,20 @@
 package tibe
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/sha512"
 	"github.com/cloudflare/circl/ecc/bls12381"
 )
+
+const macSize = 32
+
+func mac(data, secret []byte) []byte {
+	h := hmac.New(sha256.New, secret)
+	h.Write(data)
+	return h.Sum(nil)
+}
 
 func randomScalar() (*bls12381.Scalar, error) {
 	r := &bls12381.Scalar{}

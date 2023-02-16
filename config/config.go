@@ -1,8 +1,27 @@
 package config
 
 import (
+	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/crypto/tibe"
+	"github.com/jonathanMweiss/resmix/rrpc"
+	"golang.org/x/crypto/sha3"
+	"sort"
+	"strconv"
 )
+
+const seed = "there is nothing up my sleeve"
+
+var randomReader sha3.ShakeHash
+
+func init() {
+	cpy := make([]byte, len(seed))
+
+	copy(cpy, seed)
+
+	randomReader = sha3.NewShake128()
+
+	randomReader.Write(cpy)
+}
 
 // CreateSystemConfigs
 // polyDegree is the degree of the polynomial used for DKG and VSS. determines the threshold of VSS (degree + 1).
@@ -12,10 +31,32 @@ func CreateSystemConfigs(addresses []string, polyDegree, numLayers int) *SystemC
 	for _, srvr := range srvrs {
 		srvr.setMixNames(top)
 	}
+
+	peers := make([]*Peer, len(srvrs))
+	for i, srvr := range srvrs {
+		peers[i] = &Peer{
+			Hostname:      srvr.GetHostname(),
+			RrpcPublicKey: srvr.GetRrpcPublicKey(),
+		}
+	}
+
+	for _, srvr := range srvrs {
+		srvr.Peers = peers
+	}
+
 	return &SystemConfig{
 		ServerConfigs: srvrs,
-		LogicalMixes:  top,
+		Topology:      top,
 	}
+}
+
+func CreateLocalSystemConfigs(numServers, polyDegree, numLayers int) *SystemConfig {
+	addresses := make([]string, numServers)
+	for i := range addresses {
+		addresses[i] = "localhost:" + strconv.Itoa(5050+i)
+	}
+
+	return CreateSystemConfigs(addresses, polyDegree, numLayers)
 }
 
 func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
@@ -24,6 +65,11 @@ func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
 	serverConfigs := make([]*ServerConfig, len(addresses))
 	for i := range addresses {
 		bts, err := dkgShrs[i].Marshal()
+		if err != nil {
+			panic(err)
+		}
+
+		sk, pk, err := crypto.GenerateKeys()
 		if err != nil {
 			panic(err)
 		}
@@ -41,6 +87,9 @@ func createConfigs(addresses []string, polyDegree int) []*ServerConfig {
 				AddressOfNodeToSecretShare:      map[string][]byte{},
 				AddressOfNodeToMasterPublicKeys: map[string][]byte{},
 			},
+			Mixes:         nil, // filled later.
+			RrpcSecretKey: sk,
+			RrpcPublicKey: pk,
 		}
 	}
 
@@ -78,7 +127,7 @@ func vsspolynomialsSetup(numPolynomials int, polyDegree int) ([]tibe.Poly, [][]b
 	mPolynomials := make([][]byte, numPolynomials)
 	polynomials := make([]tibe.Poly, numPolynomials)
 	for i := 0; i < numPolynomials; i++ {
-		polynomials[i] = tibe.NewRandomPoly(polyDegree)
+		polynomials[i] = tibe.NewRandomPoly(polyDegree, randomReader)
 
 		bts, err := polynomials[i].Marshal()
 		if err != nil {
@@ -92,7 +141,7 @@ func vsspolynomialsSetup(numPolynomials int, polyDegree int) ([]tibe.Poly, [][]b
 }
 
 func DKGSetup(addresses []string, d int) ([]tibe.PolyShare, [][]byte) {
-	dkgPoly := tibe.NewRandomPoly(d) // so we need half +1 to reconstruct
+	dkgPoly := tibe.NewRandomPoly(d, randomReader) // so we need half +1 to reconstruct
 
 	shrs := dkgPoly.CreateShares(len(addresses))
 
@@ -164,4 +213,38 @@ func (s *ServerConfig) setMixNames(top *Topology) {
 
 		s.Mixes = append(s.Mixes, nm)
 	}
+
+	sort.Slice(s.Mixes, func(i, j int) bool {
+		return top.Mixes[s.Mixes[i]].Layer < top.Mixes[s.Mixes[j]].Layer
+	})
+}
+
+func (s *ServerConfig) CreateCoordinator() rrpc.ServerCoordinator {
+	ncnfgs := &rrpc.NetworkConfig{
+		Tau:           len(s.Peers) / 2,
+		ServerConfigs: make([]rrpc.ServerData, len(s.Peers)),
+	}
+
+	for i, peer := range s.Peers {
+		ncnfgs.ServerConfigs[i] = rrpc.ServerData{
+			Address:   peer.Hostname,
+			Publickey: peer.RrpcPublicKey,
+		}
+	}
+
+	return rrpc.NewCoordinator(rrpc.NewNetworkData(ncnfgs), s.RrpcSecretKey)
+}
+
+func (s *SystemConfig) GetServerConfig(hostname string) *ServerConfig {
+	for _, srv := range s.ServerConfigs {
+		if srv.Hostname == hostname {
+			return srv
+		}
+	}
+
+	return nil
+}
+
+func (s *ServerConfig) GetMixesSortedByLayer() []string {
+	return s.Mixes
 }

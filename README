@@ -1,0 +1,12 @@
+This project is a POC!
+It was not reviewed by anyone else but me.
+The code is not optimized, and the security is not guaranteed
+and it shouldn't be used in a real product without proper care.
+
+For instance, the config relies on `sha3.NewShake128` to generate its random polynomials.
+
+# POC and ignored security:
+1. Relay trust the server when it states good/bad workload.
+   otherwise we need to create code the protocol of reassembling parcels, and verifying correct workload oon each relay.
+   This is not a trivial task, and I don't have the time to do it.
+2.

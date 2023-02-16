@@ -1,7 +1,7 @@
 package rrpc
 
 import (
-	"github.com/jonathanMweiss/resmix/internal/crypto"
+	"fmt"
 	"google.golang.org/grpc"
 	"net"
 )
@@ -19,34 +19,43 @@ type Server interface {
 	Stop()
 }
 
-type CommonConfigs struct {
+type Configs struct {
 	IsGrpc            bool
-	SecretKey         crypto.PrivateKey
 	ServerCoordinator ServerCoordinator
+	ServerOptions     []grpc.ServerOption
+	DialOptions       []grpc.DialOption
 }
 
-type ServerConfigs struct {
-	CommonConfigs
-	GrpcOptions []grpc.ServerOption
-}
-type ClientConfigs struct {
-	CommonConfigs
-	GrpcOptions []grpc.DialOption
+func (c Configs) isEmpty() bool {
+	return c.ServerCoordinator == nil && !c.IsGrpc
 }
 
-func NewServer(services Services, cnfgs ServerConfigs) (Server, error) {
-	if cnfgs.IsGrpc {
-		return newGrpcServer(services, cnfgs.GrpcOptions...), nil
+var ErrNoConfigs = fmt.Errorf("no configs provided")
+
+func NewServer(services Services, cnfgs Configs) (Server, error) {
+	if cnfgs.isEmpty() {
+		return nil, ErrNoConfigs
 	}
 
-	return newServerService(cnfgs.SecretKey, services, cnfgs.ServerCoordinator, cnfgs.GrpcOptions...)
-}
-
-func NewConnection(target string, cnfgs ClientConfigs) (ClientConn, error) {
 	if cnfgs.IsGrpc {
-		return newGrpcClient(target, cnfgs.GrpcOptions...)
+		return newGrpcServer(services, cnfgs.ServerOptions...), nil
 	}
 
-	return newClient(cnfgs.SecretKey, target, cnfgs.ServerCoordinator), nil
+	return newServerService(
+		services,
+		cnfgs.ServerCoordinator,
+		cnfgs.ServerOptions...,
+	)
+}
 
+func NewConnection(target string, cnfgs Configs) (ClientConn, error) {
+	if cnfgs.isEmpty() {
+		return nil, ErrNoConfigs
+	}
+
+	if cnfgs.IsGrpc {
+		return newGrpcClient(target, cnfgs.DialOptions...)
+	}
+
+	return newClient(target, cnfgs.ServerCoordinator), nil
 }

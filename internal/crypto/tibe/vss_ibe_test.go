@@ -55,9 +55,10 @@ func TestVSSIBEReconstructKeyForSpecificIDUsingNodes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, c.Encrypted, []byte("check")) // ensuring the ciphertext is not equal to the plaintext.
 
-	msg, err := dec.Decrypt(c)
+	msg, err := dec.Decrypt(c.Copy()) // using copy to ensure we do not change the cipher in between...
 	require.NoError(t, err)
-	msg2, err := nodes[0].Decrypter(keyID).Decrypt(c)
+
+	msg2, err := nodes[0].Decrypter(keyID).Decrypt(c.Copy())
 	require.NoError(t, err)
 	require.Equal(t, msg, msg2)
 
@@ -126,4 +127,39 @@ func BenchmarkReconstructIbeDecryptor(b *testing.B) {
 		_, err := nd.ReconstructDecrypter("0", votes)
 		require.NoError(b, err)
 	}
+}
+
+func BenchmarkEncryptionDecryption(b *testing.B) {
+	ns := NewNode(NewRandomPoly(50))
+
+	ID := []byte("key1")
+	msg := []byte("check")
+
+	b.Run("Encryption", func(b *testing.B) {
+		pk, err := ns.GetMasterPublicKey()
+		require.NoError(b, err)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := pk.Encrypt(ID, msg)
+			require.NoError(b, err)
+		}
+	})
+
+	b.Run("Decryption", func(b *testing.B) {
+		pk, err := ns.GetMasterPublicKey()
+		require.NoError(b, err)
+
+		c, err := pk.Encrypt(ID, msg)
+		require.NoError(b, err)
+
+		sk := ns.Decrypter(ID)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := sk.Decrypt(c.Copy())
+			require.NoError(b, err)
+		}
+	})
+
 }

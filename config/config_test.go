@@ -65,7 +65,7 @@ func TestVSSCreation(t *testing.T) {
 	ctx, err := masterKeys[1].EncryptFor(mixName, []byte(id), []byte("secret message"))
 	a.NoError(err)
 
-	ptx, err := masterKeys[0].Decrypter([]byte(id)).Decrypt(ctx)
+	ptx, err := masterKeys[0].Decrypter([]byte(id)).Decrypt(ctx.Copy())
 	a.NoError(err)
 
 	require.Equal(t, ptx, []byte("secret message"))

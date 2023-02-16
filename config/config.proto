@@ -14,7 +14,7 @@ message IBEConfigs{
 
 message SystemConfig{
   repeated ServerConfig ServerConfigs = 1;
-  Topology LogicalMixes = 2;
+  Topology topology = 2;
 }
 
 message Layer{
@@ -38,6 +38,15 @@ message ServerConfig {
   IBEConfigs IBEConfigs = 6;
 
   repeated string Mixes = 7;
+
+  bytes rrpcSecretKey = 8;
+  bytes rrpcPublicKey = 9;
+
+  repeated Peer Peers = 10;
+}
+message Peer{
+  string Hostname = 1;
+  bytes rrpcPublicKey = 2;
 }
 
 message LogicalMix{

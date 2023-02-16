@@ -32,8 +32,8 @@ type ServerData struct {
 	Publickey []byte
 }
 
-func NewNetworkData(config *NetworkConfig) *network {
-	nt := &network{
+func NewNetworkData(config *NetworkConfig) *Network {
+	nt := &Network{
 		pkToHost: make(map[string]string),
 		hostToPK: make(map[string]crypto.PublicKey),
 		Tau:      config.Tau,
@@ -62,7 +62,7 @@ type NetworkConfig struct {
 	ServerConfigs []ServerData
 }
 
-type network struct {
+type Network struct {
 	serverAddresses []string
 	// used as a set for keys (string([]byte))
 	pkToHost map[string]string
@@ -72,14 +72,14 @@ type network struct {
 	Tau int
 }
 
-func (n *network) GetRelayIndex(ip string) int {
+func (n *Network) GetRelayIndex(ip string) int {
 	return sort.SearchStrings(n.serverAddresses, ip) // like searching a tree...
 }
-func (n *network) Servers() []string {
+func (n *Network) Servers() []string {
 	return n.serverAddresses
 }
 
-func (n *network) MinimalAttestationNumber() int {
+func (n *Network) MinimalAttestationNumber() int {
 	// tau > 2(t+x+l)
 	// tau/2 > t+x+l
 	// hence: tau/2 >= t+x+l+1 which is isMinimalAttestationNumber
@@ -88,38 +88,38 @@ func (n *network) MinimalAttestationNumber() int {
 
 var unknownHostErr = status.Newf(codes.NotFound, "unknown hots").Err()
 
-func (n *network) GetPublicKey(hostname string) (crypto.PublicKey, error) {
+func (n *Network) GetPublicKey(hostname string) (crypto.PublicKey, error) {
 	if pk, ok := n.hostToPK[hostname]; ok {
 		return pk, nil
 	}
 	return nil, unknownHostErr
 }
 
-func (n *network) ContainKey(key crypto.PublicKey) bool {
+func (n *Network) ContainKey(key crypto.PublicKey) bool {
 	if _, ok := n.pkToHost[string(key)]; ok {
 		return true
 	}
 	return false
 }
 
-func (n *network) MaxErrors() int {
+func (n *Network) MaxErrors() int {
 	return n.Tau - 1
 }
 
-func (n *network) MinimalRelayedParcels() int {
+func (n *Network) MinimalRelayedParcels() int {
 	return n.NumServers() - n.MaxErrors()
 
 }
 
-func (n *network) GetHostname(pub []byte) string {
+func (n *Network) GetHostname(pub []byte) string {
 	return n.pkToHost[string(pub)]
 }
 
-func (n *network) NumServers() int {
+func (n *Network) NumServers() int {
 	return len(n.serverAddresses)
 }
 
-func (n *network) addServer(scnf ServerData) {
+func (n *Network) addServer(scnf ServerData) {
 	n.serverAddresses = append(n.serverAddresses, scnf.Address)
 	n.hostToPK[scnf.Address] = scnf.Publickey
 	n.pkToHost[string(scnf.Publickey)] = scnf.Address

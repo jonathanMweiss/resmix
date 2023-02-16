@@ -15,12 +15,14 @@ service Mix {
   rpc EndRound(EndRoundRequest) returns (EndRoundResponse) {}
   //  rpc StartRound(StartRoundRequest) returns (StartRoundResponse) {}
 
-  // used to send messages to the mix...
-  //  rpc SubmitCiphertexts(stream SubmitCiphertextsRequest) returns (SubmitCiphertextsResponse) {}
+  rpc AddMessages(AddMessagesRequest) returns (AddMessagesResponse) {}
+
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse) {}
 }
 
 message NewRoundRequest {
   uint32 round = 1;
+  map<string, uint64> mixIdsToExpectedWorkload = 2;
 }
 
 message NewRoundResponse {}
@@ -45,17 +47,13 @@ message AddMessagesRequest{
   repeated Messages messages = 2;
 }
 
+message AddMessagesResponse{}
 
-// Key release:
-
-message Vote {
-  // sig over some ID. the sig is created using some part of a DKG share.
-  bytes signature = 1;
-  uint32 signerPosition = 2;
+message GetMessagesRequest{
+  uint32 round = 1;
+  bytes logicalMixer = 2;
 }
 
-message KeyReleaseMessage {
-  repeated Vote votes = 1;
-  // all votes are targeting this id.
-  bytes serverId = 2;
+message GetMessagesResponse{
+  repeated bytes messages = 1;
 }

@@ -1,6 +1,8 @@
 package tibe
 
 import (
+	"bytes"
+	"crypto/hmac"
 	"fmt"
 	"github.com/cloudflare/circl/ecc/bls12381"
 	"github.com/jonathanMweiss/resmix/internal/msync"
@@ -47,8 +49,45 @@ type VssIbeNode interface {
 // Cipher is the ciphertext, can be decrypted by a specific Decrypter.
 type Cipher struct {
 	Gr        *bls12381.G1
-	ID        []byte
+	Mac       []byte
 	Encrypted []byte
+}
+
+func (c *Cipher) Copy() Cipher {
+	gr := &bls12381.G1{}
+	identitiy := &bls12381.G1{}
+	identitiy.SetIdentity()
+	gr.Add(c.Gr, identitiy)
+	return Cipher{
+		Gr:        gr,
+		Mac:       append([]byte{}, c.Mac...),
+		Encrypted: append([]byte{}, c.Encrypted...),
+	}
+}
+
+func (c *Cipher) ToBuffer(buffer *bytes.Buffer) {
+	buffer.Write(c.Gr.Bytes())
+	buffer.Write(c.Mac)
+	buffer.Write(c.Encrypted)
+}
+
+func (c *Cipher) Size() int {
+	return bls12381.G1Size + len(c.Mac) + len(c.Encrypted)
+}
+
+func (c *Cipher) SetBytes(bts []byte) error {
+	if c.Gr == nil {
+		c.Gr = &bls12381.G1{}
+	}
+
+	if err := c.Gr.SetBytes(bts[:bls12381.G1Size]); err != nil {
+		return err
+	}
+
+	c.Mac = bts[bls12381.G1Size : bls12381.G1Size+macSize]
+	c.Encrypted = bts[bls12381.G1Size+macSize:]
+
+	return nil
 }
 
 // MasterPublicKey is an Encrypter.
@@ -89,8 +128,9 @@ func (p MasterPublicKey) Encrypt(ID, msg []byte) (Cipher, error) {
 	tmp.ScalarMult(r, bls12381.G1Generator())
 
 	return Cipher{
-		Gr:        tmp,
-		ID:        ID,
+		Gr: tmp,
+		// TODO: verify with GIL this is secure authentication over the ciphertext.
+		Mac:       mac(append(tmp.Bytes(), c...), k),
 		Encrypted: c,
 	}, nil
 }
@@ -113,6 +153,10 @@ func (sk idBasedPrivateKey) Decrypt(c Cipher) ([]byte, error) {
 	k, err := hashGt(bls12381.Pair(c.Gr, sk.G2))
 	if err != nil {
 		return nil, err
+	}
+
+	if !hmac.Equal(c.Mac, mac(append(c.Gr.Bytes(), c.Encrypted...), k)) {
+		return nil, fmt.Errorf("mac mismatch")
 	}
 
 	return aesDecrypt(k, c.Encrypted)

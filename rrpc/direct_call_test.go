@@ -87,7 +87,7 @@ func newClientTestSetup(t require.TestingT, srvc Services) clientTestSetup {
 		network := NewCoordinator(netdata, sks[i])
 		networks = append(networks, network)
 
-		srvr, err := newServerService(sks[i], srvc, network)
+		srvr, err := newServerService(srvc, network)
 		require.NoError(t, err)
 
 		srvrs = append(srvrs, srvr)
@@ -138,7 +138,7 @@ func TestDirectCallWithStructService(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -161,7 +161,7 @@ func TestDirectCall(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 	for i := 0; i < 10; i++ {
 		req := &Request{
@@ -200,7 +200,7 @@ func TestDirectCallErrors(t *testing.T) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 	defer c.Close()
 
 	req := &Request{
@@ -223,7 +223,7 @@ func BenchmarkDirectCall(b *testing.B) {
 	defer setup.releaseResources()
 
 	// Ensuring the coordinator dials to all relays.
-	c := newClient(setup.sk, setup.serverAddr, setup.networks[0])
+	c := newClient(setup.serverAddr, setup.networks[0])
 
 	req := &Request{
 		Args:    nil,
