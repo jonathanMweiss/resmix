@@ -2,13 +2,14 @@ package rrpc
 
 import (
 	"context"
+	"io"
+	"sync"
+	"time"
+
 	"github.com/jonathanMweiss/resmix/internal/crypto"
 	"github.com/jonathanMweiss/resmix/internal/msync"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"io"
-	"sync"
-	"time"
 )
 
 // TODO: attestor, should have a priority queue of items to be ready to attest against.
